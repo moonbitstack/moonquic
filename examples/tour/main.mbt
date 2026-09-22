@@ -87,6 +87,29 @@ fn main {
   for run in acked {
     println("  acknowledges     \{run.0}..\{run.1}")
   }
+  // An endpoint declares its limits in a block the TLS handshake carries (§18).
+  let mine = @conn.Limits::new(
+    idle_timeout=30_000,
+    data=1048576,
+    stream_data_bidi_remote=65536,
+    streams_bidi=100,
+  )
+  let block = @conn.encode(mine.params()[:])
+  println(
+    "params             \{block.length()} bytes, \{mine.params().length()} of them",
+  )
+  guard @conn.decode(block[:]) is Some(back) else { return }
+  println("read back          \{@conn.Limits::read(back[:]) == mine}")
+  // Everything the block leaves out keeps RFC 9000 §18.2's default.
+  println(
+    "ack delay exponent \{@conn.Limits::read(back[:]).ack_delay_exponent}",
+  )
+
+  // A server holds one connection per connection id, and answers a datagram by it.
+  let server : @conn.Endpoint[String] = @conn.Endpoint::new(
+    @conn.Config::default(),
+  )
+  println("connections        \{server.count()}")
 }
 
 ///|

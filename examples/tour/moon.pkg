@@ -3,6 +3,7 @@ import {
   "moonbitstack/moonquic/frame",
   "moonbitstack/moonquic/packet",
   "moonbitstack/moonquic/crypto",
+  "moonbitstack/moonquic/conn",
 }
 
 pkgtype(kind: "executable")
