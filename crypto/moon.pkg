@@ -15,4 +15,5 @@ import {
   "moonbitstack/mooncrypt/spec",
   "moonbitstack/mooncrypt/cipher/aes",
   "moonbitstack/mooncrypt/aead/gcm",
+  "moonbitstack/moonvar/fixed",
 }

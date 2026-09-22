@@ -399,10 +399,10 @@ pub fn Keys::open(
     return None
   }
   let (recovered, size) = self.unprotect(packet, at~, suite~)
-  let mut truncated = 0L
-  for i = 0; i < size; i = i + 1 {
-    truncated = (truncated << 8) | recovered[at + i].to_int64()
-  }
+  // `unprotect` has just read these bytes, so the read cannot come up short.
+  let truncated = @fixed.read_uint(recovered[:], at~, size~)
+    .unwrap()
+    .reinterpret_as_int64()
   let number = @packet.read_number(largest, truncated, size * 8)
   let from = at + size
   // A long header's Length bounds the packet, so a datagram carrying more than one is
