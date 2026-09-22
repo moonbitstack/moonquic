@@ -24,6 +24,7 @@ Run `moon run examples/tour` for the whole surface in one go.
 | `frame` | [§19](https://www.rfc-editor.org/rfc/rfc9000#section-19) every frame type, and [§19.3.1](https://www.rfc-editor.org/rfc/rfc9000#section-19.3.1) the ACK range encoding both ways | **0.1.0** |
 | `packet` | [§17](https://www.rfc-editor.org/rfc/rfc9000#section-17) long and short headers, Retry, Version Negotiation, [§17.1](https://www.rfc-editor.org/rfc/rfc9000#section-17.1) packet numbers, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces | **0.1.0** |
 | `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update | **0.1.0** |
+| `recovery` | [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) the round-trip estimate, both loss thresholds, the probe timeout, NewReno and persistent congestion | **0.1.0** |
 
 `varint`, `frame` and `packet` have no dependencies outside this module; `frame` and `packet` are pure codecs, so a tool that only wants to read packets off a capture links nothing else.
 
@@ -40,11 +41,13 @@ The cipher suite is a record with a public preset:
 
 `Suite` carries the AEAD as a function, so a cipher this module has none of — ChaCha20-Poly1305, say — plugs in by implementing `@spec.Aead` and changing nothing here. `Version` does the same for the constants a QUIC version fixes: the Initial salt, the four HKDF labels, and the Retry integrity key. The preset is version 1; [RFC 9369](https://www.rfc-editor.org/rfc/rfc9369) changes every one of them for version 2, and that is a record away.
 
+`@recovery.Policy` holds every constant RFC 9002 marks as a tunable — the two loss thresholds, the granularity, the initial round trip, the persistent-congestion threshold, the loss reduction factor — at the values the RFC recommends. The congestion controller is a trait, because §7 opens by saying an endpoint may use any: NewReno is what ships, and Cubic or BBR answer the same seven questions.
+
 ## What is not here
 
 Sockets, and anything that needs a clock of its own. The TLS handshake — that is `moontls`, whose key schedule RFC 9001 §5.2 reuses verbatim. HTTP/3 and QPACK — those are [`moonhttp`](https://github.com/moonbitstack/moonhttp)'s, because HTTP/3 is a version of HTTP and QPACK is to it what HPACK is to HTTP/2.
 
-Loss recovery, congestion control, streams, flow control and the connection state machine are landing package by package; the table above is what is in.
+Streams, flow control and the connection state machine are landing package by package; the table above is what is in.
 
 ## Verification
 

@@ -1,0 +1,118 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/recovery"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitstack/moonquic/frame",
+}
+
+// Values
+pub fn can_send(&Control, Int64) -> Bool
+
+pub let policy : Policy
+
+// Errors
+
+// Types and methods
+pub struct Flight {
+  mut packets : Array[Sent]
+  mut largest_acked : Int64
+}
+pub fn Flight::largest_acked(Self) -> Int64
+pub fn Flight::lost(Self, Int64, packets~ : Int64, time~ : Int64) -> Array[Sent]
+pub fn Flight::new() -> Self
+pub fn Flight::on_ack(Self, Array[(Int64, Int64)]) -> Int64
+pub fn Flight::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
+pub fn Flight::outstanding(Self) -> Array[Int64]
+pub fn Flight::time_of(Self, Int64) -> Int64?
+
+pub struct NewReno {
+  mut window : Int64
+  mut ssthresh : Int64
+  mut in_flight : Int64
+  mut recovery : Int64
+  policy : Policy
+}
+pub fn NewReno::in_flight(Self) -> Int64
+pub fn NewReno::minimum(Self) -> Int64
+pub fn NewReno::new(policy? : Policy) -> Self
+pub fn NewReno::on_ack(Self, Int64) -> Unit
+pub fn NewReno::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
+pub fn NewReno::on_lost(Self, Int64) -> Unit
+pub fn NewReno::on_persistent(Self) -> Unit
+pub fn NewReno::on_sent(Self, Int64) -> Unit
+pub fn NewReno::recovering(Self, Int64) -> Bool
+pub fn NewReno::ssthresh(Self) -> Int64
+pub fn NewReno::window(Self) -> Int64
+
+pub(all) struct Policy {
+  packets : Int64
+  time : Double
+  granularity : Int64
+  initial_rtt : Int64
+  persistent : Int64
+  reduction : Double
+  datagram : Int64
+  ack_delay : Int64
+}
+pub fn Policy::new(packets? : Int64, time? : Double, granularity? : Int64, initial_rtt? : Int64, persistent? : Int64, reduction? : Double, datagram? : Int64, ack_delay? : Int64) -> Self
+
+pub struct Rtt {
+  mut latest : Int64
+  mut min : Int64
+  mut smoothed : Int64
+  mut variation : Int64
+  mut sampled : Bool
+}
+pub fn Rtt::latest(Self) -> Int64
+pub fn Rtt::min(Self) -> Int64
+pub fn Rtt::new() -> Self
+pub fn Rtt::pto(Self, policy? : Policy) -> Int64
+pub fn Rtt::sample(Self, Int64, ack_delay~ : Int64, policy? : Policy) -> Unit
+pub fn Rtt::sampled(Self) -> Bool
+pub fn Rtt::smoothed(Self) -> Int64
+pub fn Rtt::threshold(Self, policy? : Policy) -> Int64
+pub fn Rtt::variation(Self) -> Int64
+
+pub(all) struct Sent {
+  pn : Int64
+  at : Int64
+  size : Int64
+} derive(Eq, @debug.Debug)
+pub fn Sent::equal(Self, Self) -> Bool
+pub fn Sent::not_equal(Self, Self) -> Bool
+pub fn Sent::to_repr(Self) -> @debug.Repr
+
+pub struct State {
+  rtt : Rtt
+  flight : Flight
+  control : &Control
+  policy : Policy
+  mut pto_count : Int
+  mut last_sent : Int64
+}
+pub fn State::can_send(Self, Int64) -> Bool
+pub fn State::in_flight(Self) -> Int64
+pub fn State::new(policy? : Policy, control? : &Control) -> Self
+pub fn State::on_ack(Self, @frame.Frame, Int64, ack_delay~ : Int64) -> Array[Int64] raise @frame.Refused
+pub fn State::on_pto(Self) -> Unit
+pub fn State::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
+pub fn State::outstanding(Self) -> Array[Int64]
+pub fn State::pto(Self) -> Int64
+pub fn State::pto_count(Self) -> Int
+pub fn State::pto_deadline(Self) -> Int64?
+pub fn State::rtt(Self) -> Rtt
+pub fn State::window(Self) -> Int64
+
+// Type aliases
+
+// Traits
+pub(open) trait Control {
+  fn window(Self) -> Int64
+  fn in_flight(Self) -> Int64
+  fn on_sent(Self, Int64) -> Unit
+  fn on_ack(Self, Int64) -> Unit
+  fn on_lost(Self, Int64) -> Unit
+  fn on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
+  fn on_persistent(Self) -> Unit
+}

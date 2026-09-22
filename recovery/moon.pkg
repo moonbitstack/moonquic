@@ -1,0 +1,11 @@
+// QUIC loss detection and congestion control, RFC 9002:
+// https://www.rfc-editor.org/rfc/rfc9002
+//
+// The round-trip estimate of §5, the packet and time loss thresholds of §6.1, the probe
+// timeout of §6.2, NewReno and the recovery period of §7, and persistent congestion.
+//
+// It holds no clock: every entry point takes `now` in microseconds, so a test drives it
+// with whatever times it likes and a connection drives it with the real one.
+import {
+  "moonbitstack/moonquic/frame",
+}
