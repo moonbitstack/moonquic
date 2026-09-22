@@ -1,0 +1,18 @@
+// QUIC packet protection, RFC 9001 §5 and §6:
+// https://www.rfc-editor.org/rfc/rfc9001#section-5
+//
+// The Initial secrets a connection ID alone yields, the packet keys a TLS traffic
+// secret expands to, the AEAD that seals a payload under its own header, the header
+// protection that hides the packet number, the key update of §6.1, and the Retry
+// integrity tag of §5.8.
+//
+// The key schedule and the handshake are `moontls`', the ciphers are `mooncrypt`'s,
+// and the headers are `packet`'s: what is here is the wiring RFC 9001 specifies
+// between them.
+import {
+  "moonbitstack/moonquic/packet",
+  "moonbitstack/moontls/keys",
+  "moonbitstack/mooncrypt/spec",
+  "moonbitstack/mooncrypt/cipher/aes",
+  "moonbitstack/mooncrypt/aead/gcm",
+}

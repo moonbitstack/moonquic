@@ -1,0 +1,114 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/packet"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitstack/moonquic/frame",
+}
+
+// Values
+pub fn encode_long(Long) -> Bytes
+
+pub fn encode_short(Short) -> Bytes
+
+pub fn number(Int64, Int64?) -> Bytes
+
+pub fn number_size(Int64, Int64?) -> Int
+
+pub fn pad(Bytes, Int) -> Bytes
+
+pub fn payload(Array[@frame.Frame]) -> Bytes
+
+pub fn payload_elicits_ack(Array[@frame.Frame]) -> Bool
+
+pub fn read_header(BytesView) -> (Long, Tail)?
+
+pub fn read_long(BytesView) -> (Long, Int)?
+
+pub fn read_number(Int64, Int64, Int) -> Int64
+
+pub fn read_payload(Bytes) -> Array[@frame.Frame] raise Refused
+
+pub fn read_retry(BytesView) -> (Long, Bytes, Bytes)?
+
+pub fn read_short(BytesView, Int) -> (Short, Int)?
+
+pub fn read_tail(Long, BytesView, Int) -> Tail?
+
+pub fn read_versions(BytesView) -> (Bytes, Bytes, Array[UInt])?
+
+pub fn retry(Long, token~ : Bytes, tag~ : Bytes) -> Bytes
+
+pub fn versions(dcid~ : Bytes, scid~ : Bytes, ArrayView[UInt], first? : Int) -> Bytes
+
+// Errors
+pub(all) suberror Refused {
+  Malformed(String)
+} derive(Eq)
+pub fn Refused::equal(Self, Self) -> Bool
+pub fn Refused::not_equal(Self, Self) -> Bool
+pub fn Refused::output(Self, &Logger) -> Unit
+pub fn Refused::to_string(Self) -> String
+pub impl Show for Refused
+
+// Types and methods
+pub(all) enum Kind {
+  Initial
+  ZeroRtt
+  Handshake
+  Retry
+} derive(Eq, @debug.Debug)
+pub fn Kind::equal(Self, Self) -> Bool
+pub fn Kind::not_equal(Self, Self) -> Bool
+pub fn Kind::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Long {
+  packet_type : Kind
+  type_specific : Int
+  version : UInt
+  dcid : Bytes
+  scid : Bytes
+} derive(Eq, @debug.Debug)
+pub fn Long::equal(Self, Self) -> Bool
+pub fn Long::header(Self, BytesView, payload~ : Int, token? : Bytes) -> Bytes
+pub fn Long::not_equal(Self, Self) -> Bool
+pub fn Long::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Short {
+  spin : Bool
+  key_phase : Bool
+  pn_length : Int
+  dcid : Bytes
+} derive(Eq, @debug.Debug)
+pub fn Short::equal(Self, Self) -> Bool
+pub fn Short::header(Self, BytesView) -> Bytes
+pub fn Short::not_equal(Self, Self) -> Bool
+pub fn Short::to_repr(Self) -> @debug.Repr
+
+pub struct Space {
+  mut next_pn : Int64
+  received : @frame.Seen
+  mut largest_acked : Int64?
+  mut ack_eliciting_pending : Bool
+}
+pub fn Space::ack_pending(Self) -> Bool
+pub fn Space::advance_past(Self, Int64) -> Unit
+pub fn Space::build_ack(Self, UInt64) -> @frame.Frame?
+pub fn Space::largest_acked(Self) -> Int64?
+pub fn Space::new() -> Self
+pub fn Space::next_packet_number(Self) -> Int64
+pub fn Space::on_ack_received(Self, Int64) -> Unit
+pub fn Space::on_packet_received(Self, Int64, Bool) -> Unit
+
+pub(all) struct Tail {
+  token : Bytes
+  length : UInt64
+  at : Int
+} derive(Eq, @debug.Debug)
+pub fn Tail::equal(Self, Self) -> Bool
+pub fn Tail::not_equal(Self, Self) -> Bool
+pub fn Tail::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

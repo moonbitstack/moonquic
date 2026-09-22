@@ -1,0 +1,15 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/varint"
+
+// Values
+pub fn decode(BytesView) -> (UInt64, Int)?
+
+pub fn encode(UInt64) -> Bytes
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

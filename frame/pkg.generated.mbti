@@ -1,0 +1,68 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/frame"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn elicits_ack(Frame) -> Bool
+
+pub fn encode(Frame) -> Bytes
+
+pub fn parse(BytesView) -> (Frame, Int)?
+
+// Errors
+pub(all) suberror Refused {
+  Malformed(String)
+} derive(Eq)
+pub fn Refused::equal(Self, Self) -> Bool
+pub fn Refused::not_equal(Self, Self) -> Bool
+pub fn Refused::output(Self, &Logger) -> Unit
+pub fn Refused::to_string(Self) -> String
+pub impl Show for Refused
+
+// Types and methods
+pub(all) enum Frame {
+  Padding(Int)
+  Ping
+  Crypto(offset~ : UInt64, data~ : Bytes)
+  Stream(id~ : UInt64, offset~ : UInt64, fin~ : Bool, data~ : Bytes)
+  Ack(largest~ : UInt64, delay~ : UInt64, first_range~ : UInt64, ranges~ : Array[(UInt64, UInt64)])
+  AckEcn(largest~ : UInt64, delay~ : UInt64, first_range~ : UInt64, ranges~ : Array[(UInt64, UInt64)], ect0~ : UInt64, ect1~ : UInt64, ce~ : UInt64)
+  ResetStream(id~ : UInt64, error_code~ : UInt64, final_size~ : UInt64)
+  StopSending(id~ : UInt64, error_code~ : UInt64)
+  NewToken(token~ : Bytes)
+  MaxData(UInt64)
+  MaxStreamData(id~ : UInt64, max~ : UInt64)
+  MaxStreams(bidi~ : Bool, max~ : UInt64)
+  DataBlocked(UInt64)
+  StreamDataBlocked(id~ : UInt64, max~ : UInt64)
+  StreamsBlocked(bidi~ : Bool, max~ : UInt64)
+  NewConnectionId(seq~ : UInt64, retire_prior_to~ : UInt64, conn_id~ : Bytes, reset_token~ : Bytes)
+  RetireConnectionId(UInt64)
+  PathChallenge(Bytes)
+  PathResponse(Bytes)
+  HandshakeDone
+  ConnectionClose(error_code~ : UInt64, frame_type~ : UInt64?, reason~ : Bytes)
+} derive(Eq, @debug.Debug)
+pub fn Frame::acked(Self) -> Array[(UInt64, UInt64)] raise Refused
+pub fn Frame::equal(Self, Self) -> Bool
+pub fn Frame::not_equal(Self, Self) -> Bool
+pub fn Frame::to_repr(Self) -> @debug.Repr
+
+pub struct Seen {
+  mut runs : Array[(UInt64, UInt64)]
+}
+pub fn Seen::add(Self, UInt64) -> Unit
+pub fn Seen::contains(Self, UInt64) -> Bool
+pub fn Seen::fields(Self) -> (UInt64, UInt64, Array[(UInt64, UInt64)])?
+pub fn Seen::is_empty(Self) -> Bool
+pub fn Seen::largest(Self) -> UInt64?
+pub fn Seen::new() -> Self
+pub fn Seen::ranges(Self) -> Array[(UInt64, UInt64)]
+pub fn Seen::read(UInt64, UInt64, Array[(UInt64, UInt64)]) -> Self raise Refused
+
+// Type aliases
+
+// Traits

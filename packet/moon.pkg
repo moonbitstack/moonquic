@@ -1,0 +1,17 @@
+// QUIC packet headers and payloads, RFC 9000 §17 and §12.4:
+// https://www.rfc-editor.org/rfc/rfc9000#section-17
+//
+// The long header that carries Initial, 0-RTT, Handshake and Retry packets — its
+// version-independent part (RFC 8999) and its version-1 tail, the Initial token and
+// the Length field — the Retry and Version Negotiation packets that end differently,
+// the short header that carries 1-RTT, the truncated packet number of §17.1, the
+// three packet-number spaces of §12.3, and the payload a packet's frames are
+// written into.
+//
+// Header protection and the AEAD are RFC 9001's and live in `crypto`: this
+// package is the framing, and a protected packet's header is unreadable until
+// that one has removed the protection.
+import {
+  "moonbitstack/moonquic/varint",
+  "moonbitstack/moonquic/frame",
+}

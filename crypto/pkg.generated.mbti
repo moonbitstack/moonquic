@@ -1,0 +1,83 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/crypto"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitstack/mooncrypt/spec",
+  "moonbitstack/moontls/keys",
+}
+
+// Values
+pub fn aes_gcm(Bytes) -> &@spec.Aead
+
+pub fn aes_mask(Bytes, BytesView) -> Bytes
+
+pub fn application(BytesView, BytesView, client~ : Bool, suite? : Suite, version? : Version) -> Keys
+
+pub fn handshake(BytesView, BytesView, client~ : Bool, suite? : Suite, version? : Version) -> Keys
+
+pub fn initial(BytesView, suite? : Suite, version? : Version) -> (Keys, Keys)
+
+pub fn next(BytesView, suite? : Suite, version? : Version) -> (Bytes, Keys)
+
+pub fn retry_ok(BytesView, BytesView, suite? : Suite, version? : Version) -> Bool
+
+pub fn retry_tag(BytesView, BytesView, suite? : Suite, version? : Version) -> Bytes
+
+pub let sample : Int
+
+pub fn secret(BytesView, suite? : Suite, version? : Version) -> Bytes
+
+pub let suite : Suite
+
+pub fn update(BytesView, suite? : Suite, version? : Version) -> Bytes
+
+pub let version : Version
+
+// Errors
+
+// Types and methods
+pub(all) struct Keys {
+  key : Bytes
+  iv : Bytes
+  hp : Bytes
+} derive(Eq, @debug.Debug)
+pub fn Keys::equal(Self, Self) -> Bool
+pub fn Keys::mask(Self, BytesView, suite? : Suite) -> Bytes
+pub fn Keys::nonce(Self, Int64) -> Bytes
+pub fn Keys::not_equal(Self, Self) -> Bool
+pub fn Keys::of(BytesView, suite? : Suite, version? : Version) -> Self
+pub fn Keys::open(Self, BytesView, largest~ : Int64, at? : Int, suite? : Suite) -> (Bytes, Int64)?
+pub fn Keys::protect(Self, BytesView, at~ : Int, size~ : Int, suite? : Suite) -> Bytes
+pub fn Keys::seal(Self, BytesView, BytesView, number~ : Int64, suite? : Suite) -> Bytes
+pub fn Keys::to_repr(Self) -> @debug.Repr
+pub fn Keys::unprotect(Self, BytesView, at~ : Int, suite? : Suite) -> (Bytes, Int)
+
+pub(all) struct Suite {
+  digest : @keys.Digest
+  key : Int
+  iv : Int
+  hp : Int
+  tag : Int
+  aead : (Bytes) -> &@spec.Aead
+  mask : (Bytes, BytesView) -> Bytes
+}
+pub fn Suite::new(digest? : @keys.Digest, key? : Int, iv? : Int, hp? : Int, tag? : Int, aead? : (Bytes) -> &@spec.Aead, mask? : (Bytes, BytesView) -> Bytes) -> Self
+
+pub(all) struct Version {
+  salt : Bytes
+  key : Bytes
+  iv : Bytes
+  hp : Bytes
+  ku : Bytes
+  retry : Bytes
+  nonce : Bytes
+} derive(Eq, @debug.Debug)
+pub fn Version::equal(Self, Self) -> Bool
+pub fn Version::new(salt? : Bytes, key? : Bytes, iv? : Bytes, hp? : Bytes, ku? : Bytes, retry? : Bytes, nonce? : Bytes) -> Self
+pub fn Version::not_equal(Self, Self) -> Bool
+pub fn Version::to_repr(Self) -> @debug.Repr
+
+// Type aliases
+
+// Traits

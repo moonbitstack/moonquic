@@ -1,0 +1,14 @@
+// QUIC frames, RFC 9000 §19:
+// https://www.rfc-editor.org/rfc/rfc9000#section-19
+//
+// What a packet's payload is made of: CRYPTO, STREAM, ACK, the flow-control
+// frames, the connection-close frames and the rest. Bytes in, a frame out.
+//
+// The ACK frame's range encoding is here too (§19.3.1), both directions: a receiver's
+// record of which packet numbers arrived, and the set an ACK's fields describe.
+//
+// Which frames a packet may carry, and what to do with one, is the connection's
+// business and not this package's.
+import {
+  "moonbitstack/moonquic/varint",
+}
