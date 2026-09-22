@@ -49,10 +49,7 @@ pub fn encode_long(h : Long) -> Bytes {
   let first = 0xc0 | (code_of(h.packet_type) << 4) | (h.type_specific & 0x0f)
   let buf = Buffer()
   buf.write_byte(first.to_byte())
-  buf.write_byte((h.version >> 24).to_byte())
-  buf.write_byte((h.version >> 16).to_byte())
-  buf.write_byte((h.version >> 8).to_byte())
-  buf.write_byte(h.version.to_byte())
+  @fixed.write_u32(buf, h.version)
   buf.write_byte(h.dcid.length().to_byte())
   buf.write_bytes(h.dcid[:])
   buf.write_byte(h.scid.length().to_byte())
@@ -80,10 +77,7 @@ pub fn read_long(b : BytesView) -> (Long, Int)? {
     _ => Retry
   }
   let type_specific = first & 0x0f
-  let version = (b[1].to_int() << 24).reinterpret_as_uint() |
-    (b[2].to_int() << 16).reinterpret_as_uint() |
-    (b[3].to_int() << 8).reinterpret_as_uint() |
-    b[4].to_int().reinterpret_as_uint()
+  guard @fixed.read_u32(b, at=1) is Some(version) else { return None }
   let mut off = 5
   if b.length() < off + 1 {
     return None
@@ -158,10 +152,7 @@ pub fn Long::header(
     ((number.length() - 1) & 0x03)
   let buf = Buffer()
   buf.write_byte(first.to_byte())
-  buf.write_byte((h.version >> 24).to_byte())
-  buf.write_byte((h.version >> 16).to_byte())
-  buf.write_byte((h.version >> 8).to_byte())
-  buf.write_byte(h.version.to_byte())
+  @fixed.write_u32(buf, h.version)
   buf.write_byte(h.dcid.length().to_byte())
   buf.write_bytes(h.dcid[:])
   buf.write_byte(h.scid.length().to_byte())
@@ -260,10 +251,7 @@ pub fn versions(
   buf.write_byte(scid.length().to_byte())
   buf.write_bytes(scid[:])
   for v in offered {
-    buf.write_byte((v >> 24).to_byte())
-    buf.write_byte((v >> 16).to_byte())
-    buf.write_byte((v >> 8).to_byte())
-    buf.write_byte(v.to_byte())
+    @fixed.write_u32(buf, v)
   }
   buf.to_bytes()
 }
@@ -284,12 +272,8 @@ pub fn read_versions(b : BytesView) -> (Bytes, Bytes, Array[UInt])? {
   }
   let offered : Array[UInt] = []
   for i = at; i < b.length(); i = i + 4 {
-    offered.push(
-      (b[i].to_int() << 24).reinterpret_as_uint() |
-      (b[i + 1].to_int() << 16).reinterpret_as_uint() |
-      (b[i + 2].to_int() << 8).reinterpret_as_uint() |
-      b[i + 3].to_int().reinterpret_as_uint(),
-    )
+    guard @fixed.read_u32(b, at=i) is Some(v) else { break }
+    offered.push(v)
   }
   Some((h.dcid, h.scid, offered))
 }
