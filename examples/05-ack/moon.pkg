@@ -1,0 +1,6 @@
+import {
+  "moonbitstack/moonquic/frame",
+  "moonbitstack/moonquic/packet",
+}
+
+pkgtype(kind: "executable")
