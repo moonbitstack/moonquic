@@ -1316,7 +1316,12 @@ pub extend Phase with Eq::{not_equal, equal}
 
 ///|
 /// A protected long-header packet carrying `frames` at this level.
-fn send_long(
+///
+/// The three lines it stands for — build the header, seal the payload, protect the
+/// header — are worth writing out once to see, and worth not writing out every time
+/// after that. `@packet.Long::header` and `@crypto.Keys::seal` are still there for a
+/// sender that wants the pieces.
+pub fn send_long(
   kind : @packet.Kind,
   version : UInt,
   dcid : Bytes,
@@ -1343,7 +1348,7 @@ fn send_long(
 ///|
 /// The same from a payload already encoded, which is what padding an Initial to the
 /// minimum datagram needs (RFC 9000 §14.1).
-fn seal_long(
+pub fn seal_long(
   kind : @packet.Kind,
   version : UInt,
   dcid : Bytes,
@@ -1371,7 +1376,7 @@ fn seal_long(
 
 ///|
 /// A protected 1-RTT packet carrying `frames`.
-fn send_short(
+pub fn send_short(
   dcid : Bytes,
   number : Int64,
   size : Int,
@@ -1389,7 +1394,7 @@ fn send_short(
 ///|
 /// The frames a protected long-header packet carries, and its packet number. `None` when
 /// the tag does not match, which is a packet to drop rather than an error to report.
-fn recv_long(
+pub fn recv_long(
   packet : Bytes,
   keys : @crypto.Keys,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
@@ -1401,7 +1406,7 @@ fn recv_long(
 
 ///|
 /// The same for a 1-RTT packet, whose connection-id length only the receiver knows.
-fn recv_short(
+pub fn recv_short(
   packet : Bytes,
   dcid_len : Int,
   keys : @crypto.Keys,

@@ -34,6 +34,16 @@ pub let min_datagram : Int
 
 pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
 
+pub fn recv_long(Bytes, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+
+pub fn recv_short(Bytes, Int, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+
+pub fn seal_long(@packet.Kind, UInt, Bytes, Bytes, Int64, Int, Bytes, @crypto.Keys, token? : Bytes) -> Bytes
+
+pub fn send_long(@packet.Kind, UInt, Bytes, Bytes, Int64, Int, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
+
+pub fn send_short(Bytes, Int64, Int, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
+
 pub fn signed(&@spec.Signer, scheme? : Int) -> (Bytes) -> Bytes
 
 // Errors
