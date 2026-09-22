@@ -14,19 +14,18 @@ let (plain, n) = server.open(wire[:], largest=0L).unwrap()
 let frames = @packet.read_payload(plain)
 ```
 
-Run `moon run examples/tour` for the whole surface in one go, or one of the nine worked examples a package at a time:
+Run `moon run examples/tour` for the whole surface in one go, or one of the eight worked examples a package at a time:
 
 ```
-moon run examples/01-varint     moon run examples/04-crypto     moon run examples/07-recovery
 moon run examples/02-frames     moon run examples/05-ack        moon run examples/08-streams
 moon run examples/03-params     moon run examples/06-flow       moon run examples/09-sender
+moon run examples/04-crypto     moon run examples/07-recovery
 ```
 
 ## Packages
 
 |  | Specification | State |
 |:--:|:--|:--:|
-| `varint` | [§16](https://www.rfc-editor.org/rfc/rfc9000#section-16) the variable-length integer everything else is written in | **0.1.0** |
 | `frame` | [§19](https://www.rfc-editor.org/rfc/rfc9000#section-19) every frame type, and [§19.3.1](https://www.rfc-editor.org/rfc/rfc9000#section-19.3.1) the ACK range encoding both ways | **0.1.0** |
 | `packet` | [§17](https://www.rfc-editor.org/rfc/rfc9000#section-17) long and short headers, Retry, Version Negotiation, [§17.1](https://www.rfc-editor.org/rfc/rfc9000#section-17.1) packet numbers, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces | **0.1.0** |
 | `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update | **0.1.0** |
@@ -34,7 +33,7 @@ moon run examples/03-params     moon run examples/06-flow       moon run example
 | `stream` | [§2](https://www.rfc-editor.org/rfc/rfc9000#section-2) stream IDs and reassembly, [§3](https://www.rfc-editor.org/rfc/rfc9000#section-3) both state machines, [§4](https://www.rfc-editor.org/rfc/rfc9000#section-4) data flow control and the stream quota, and a round-robin scheduler | **0.1.0** |
 | `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, and a server's connection table, timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)) | **0.1.0** |
 
-`varint`, `frame` and `packet` have no dependencies outside this module; `frame` and `packet` are pure codecs, so a tool that only wants to read packets off a capture links nothing else.
+`frame` and `packet` are pure codecs over [`moonvar/quic`](https://github.com/moonbitstack/moonvar), so a tool that only wants to read packets off a capture links nothing else — the variable-length integer went to a library of its own, because QUIC is not the only thing that writes one.
 
 A long header splits in two on purpose. `Long` is the version-independent part [RFC 8999](https://www.rfc-editor.org/rfc/rfc8999) pins down — form, version, connection IDs — which anything can read without knowing the version. `Tail` is version 1's continuation, the Initial token and the Length field, and it is where a reader needs to know which version it is looking at.
 

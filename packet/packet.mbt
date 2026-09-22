@@ -167,10 +167,10 @@ pub fn Long::header(
   buf.write_byte(h.scid.length().to_byte())
   buf.write_bytes(h.scid[:])
   if h.packet_type is Initial {
-    buf.write_bytes(@varint.encode(token.length().to_uint64())[:])
+    buf.write_bytes(@quic.encode(token.length().to_uint64())[:])
     buf.write_bytes(token[:])
   }
-  buf.write_bytes(@varint.encode((number.length() + payload).to_uint64())[:])
+  buf.write_bytes(@quic.encode((number.length() + payload).to_uint64())[:])
   buf.write_bytes(number)
   buf.to_bytes()
 }
@@ -187,7 +187,7 @@ pub fn read_tail(h : Long, b : BytesView, at : Int) -> Tail? {
   let mut off = at
   let mut token = b""
   if h.packet_type is Initial {
-    guard @varint.decode(b[off:]) is Some((n, used)) else { return None }
+    guard @quic.decode(b[off:]) is Some((n, used)) else { return None }
     off = off + used
     let n = n.to_int()
     if n < 0 || b.length() < off + n {
@@ -196,7 +196,7 @@ pub fn read_tail(h : Long, b : BytesView, at : Int) -> Tail? {
     token = b[off:off + n].to_owned()
     off = off + n
   }
-  guard @varint.decode(b[off:]) is Some((length, used)) else { return None }
+  guard @quic.decode(b[off:]) is Some((length, used)) else { return None }
   Some({ token, length, at: off + used, })
 }
 

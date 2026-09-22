@@ -6,7 +6,7 @@
 fn main {
   // A varint says how long it is in its own first two bits (RFC 9000 §16).
   for v in [0UL, 63UL, 16383UL, 1073741823UL] {
-    println("varint \{v} -> \{hex(@varint.encode(v))}")
+    println("varint \{v} -> \{hex(@quic.encode(v))}")
   }
 
   // Frames are the payload's contents (§19). A CRYPTO frame carries the handshake.

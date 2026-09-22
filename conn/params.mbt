@@ -100,7 +100,7 @@ pub(all) struct Param {
 ///|
 /// A parameter whose value is one varint (RFC 9000 §18.2).
 pub fn Param::int(kind : Kind, value : UInt64) -> Param {
-  { kind, value: @varint.encode(value), }
+  { kind, value: @quic.encode(value), }
 }
 
 ///|
@@ -113,7 +113,7 @@ pub fn Param::flag(kind : Kind) -> Param {
 /// The integer a varint-valued parameter carries, or `None` when its value is not
 /// exactly one well-formed varint.
 pub fn Param::as_int(self : Param) -> UInt64? {
-  guard @varint.decode(self.value[:]) is Some((v, n)) else { return None }
+  guard @quic.decode(self.value[:]) is Some((v, n)) else { return None }
   if n == self.value.length() {
     Some(v)
   } else {
@@ -127,8 +127,8 @@ pub fn Param::as_int(self : Param) -> UInt64? {
 pub fn encode(params : ArrayView[Param]) -> Bytes {
   let buf = Buffer()
   for p in params {
-    buf.write_bytes(@varint.encode(p.kind.code())[:])
-    buf.write_bytes(@varint.encode(p.value.length().to_uint64())[:])
+    buf.write_bytes(@quic.encode(p.kind.code())[:])
+    buf.write_bytes(@quic.encode(p.value.length().to_uint64())[:])
     buf.write_bytes(p.value[:])
   }
   buf.to_bytes()
@@ -141,9 +141,9 @@ pub fn decode(b : BytesView) -> Array[Param]? {
   let out : Array[Param] = []
   let mut at = 0
   while at < b.length() {
-    guard @varint.decode(b[at:]) is Some((code, used)) else { return None }
+    guard @quic.decode(b[at:]) is Some((code, used)) else { return None }
     at = at + used
-    guard @varint.decode(b[at:]) is Some((length, used)) else { return None }
+    guard @quic.decode(b[at:]) is Some((length, used)) else { return None }
     at = at + used
     let n = length.to_int()
     if n < 0 || b.length() < at + n {

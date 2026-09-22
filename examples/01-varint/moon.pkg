@@ -1,6 +1,0 @@
-import {
-  "moonbitstack/moonquic/packet",
-  "moonbitstack/moonquic/varint",
-}
-
-pkgtype(kind: "executable")

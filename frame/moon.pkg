@@ -10,5 +10,5 @@
 // Which frames a packet may carry, and what to do with one, is the connection's
 // business and not this package's.
 import {
-  "moonbitstack/moonquic/varint",
+  "moonbitstack/moonvar/quic",
 }

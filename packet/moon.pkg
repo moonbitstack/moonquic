@@ -12,6 +12,6 @@
 // package is the framing, and a protected packet's header is unreadable until
 // that one has removed the protection.
 import {
-  "moonbitstack/moonquic/varint",
+  "moonbitstack/moonvar/quic",
   "moonbitstack/moonquic/frame",
 }

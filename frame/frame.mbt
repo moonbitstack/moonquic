@@ -72,14 +72,14 @@ fn write_ack(
   first_range : UInt64,
   ranges : Array[(UInt64, UInt64)],
 ) -> Unit {
-  buf.write_bytes(@varint.encode(largest)[:])
-  buf.write_bytes(@varint.encode(delay)[:])
-  buf.write_bytes(@varint.encode(ranges.length().to_uint64())[:])
-  buf.write_bytes(@varint.encode(first_range)[:])
+  buf.write_bytes(@quic.encode(largest)[:])
+  buf.write_bytes(@quic.encode(delay)[:])
+  buf.write_bytes(@quic.encode(ranges.length().to_uint64())[:])
+  buf.write_bytes(@quic.encode(first_range)[:])
   for r in ranges {
     let (gap, len) = r
-    buf.write_bytes(@varint.encode(gap)[:])
-    buf.write_bytes(@varint.encode(len)[:])
+    buf.write_bytes(@quic.encode(gap)[:])
+    buf.write_bytes(@quic.encode(len)[:])
   }
 }
 
@@ -92,110 +92,110 @@ pub fn encode(f : Frame) -> Bytes {
       for _i = 0; _i < n; _i = _i + 1 {
         buf.write_byte(b'\x00')
       }
-    Ping => buf.write_bytes(@varint.encode(1UL)[:])
+    Ping => buf.write_bytes(@quic.encode(1UL)[:])
     Crypto(offset~, data~) => {
-      buf.write_bytes(@varint.encode(6UL)[:])
-      buf.write_bytes(@varint.encode(offset)[:])
-      buf.write_bytes(@varint.encode(data.length().to_uint64())[:])
+      buf.write_bytes(@quic.encode(6UL)[:])
+      buf.write_bytes(@quic.encode(offset)[:])
+      buf.write_bytes(@quic.encode(data.length().to_uint64())[:])
       buf.write_bytes(data[:])
     }
     Stream(id~, offset~, fin~, data~) => {
       // Always emit with the OFF and LEN bits set (0x0e) so the frame is
       // self-delimiting; the FIN bit rides the low bit.
       let type_byte = 0x0e | (if fin { 1 } else { 0 })
-      buf.write_bytes(@varint.encode(type_byte.to_uint64())[:])
-      buf.write_bytes(@varint.encode(id)[:])
-      buf.write_bytes(@varint.encode(offset)[:])
-      buf.write_bytes(@varint.encode(data.length().to_uint64())[:])
+      buf.write_bytes(@quic.encode(type_byte.to_uint64())[:])
+      buf.write_bytes(@quic.encode(id)[:])
+      buf.write_bytes(@quic.encode(offset)[:])
+      buf.write_bytes(@quic.encode(data.length().to_uint64())[:])
       buf.write_bytes(data[:])
     }
     Ack(largest~, delay~, first_range~, ranges~) => {
-      buf.write_bytes(@varint.encode(2UL)[:])
+      buf.write_bytes(@quic.encode(2UL)[:])
       write_ack(buf, largest, delay, first_range, ranges)
     }
     AckEcn(largest~, delay~, first_range~, ranges~, ect0~, ect1~, ce~) => {
-      buf.write_bytes(@varint.encode(3UL)[:])
+      buf.write_bytes(@quic.encode(3UL)[:])
       write_ack(buf, largest, delay, first_range, ranges)
-      buf.write_bytes(@varint.encode(ect0)[:])
-      buf.write_bytes(@varint.encode(ect1)[:])
-      buf.write_bytes(@varint.encode(ce)[:])
+      buf.write_bytes(@quic.encode(ect0)[:])
+      buf.write_bytes(@quic.encode(ect1)[:])
+      buf.write_bytes(@quic.encode(ce)[:])
     }
     ResetStream(id~, error_code~, final_size~) => {
-      buf.write_bytes(@varint.encode(4UL)[:])
-      buf.write_bytes(@varint.encode(id)[:])
-      buf.write_bytes(@varint.encode(error_code)[:])
-      buf.write_bytes(@varint.encode(final_size)[:])
+      buf.write_bytes(@quic.encode(4UL)[:])
+      buf.write_bytes(@quic.encode(id)[:])
+      buf.write_bytes(@quic.encode(error_code)[:])
+      buf.write_bytes(@quic.encode(final_size)[:])
     }
     StopSending(id~, error_code~) => {
-      buf.write_bytes(@varint.encode(5UL)[:])
-      buf.write_bytes(@varint.encode(id)[:])
-      buf.write_bytes(@varint.encode(error_code)[:])
+      buf.write_bytes(@quic.encode(5UL)[:])
+      buf.write_bytes(@quic.encode(id)[:])
+      buf.write_bytes(@quic.encode(error_code)[:])
     }
     NewToken(token~) => {
-      buf.write_bytes(@varint.encode(7UL)[:])
-      buf.write_bytes(@varint.encode(token.length().to_uint64())[:])
+      buf.write_bytes(@quic.encode(7UL)[:])
+      buf.write_bytes(@quic.encode(token.length().to_uint64())[:])
       buf.write_bytes(token[:])
     }
     MaxData(v) => {
-      buf.write_bytes(@varint.encode(0x10UL)[:])
-      buf.write_bytes(@varint.encode(v)[:])
+      buf.write_bytes(@quic.encode(0x10UL)[:])
+      buf.write_bytes(@quic.encode(v)[:])
     }
     MaxStreamData(id~, max~) => {
-      buf.write_bytes(@varint.encode(0x11UL)[:])
-      buf.write_bytes(@varint.encode(id)[:])
-      buf.write_bytes(@varint.encode(max)[:])
+      buf.write_bytes(@quic.encode(0x11UL)[:])
+      buf.write_bytes(@quic.encode(id)[:])
+      buf.write_bytes(@quic.encode(max)[:])
     }
     MaxStreams(bidi~, max~) => {
-      buf.write_bytes(@varint.encode(if bidi { 0x12UL } else { 0x13UL })[:])
-      buf.write_bytes(@varint.encode(max)[:])
+      buf.write_bytes(@quic.encode(if bidi { 0x12UL } else { 0x13UL })[:])
+      buf.write_bytes(@quic.encode(max)[:])
     }
     DataBlocked(v) => {
-      buf.write_bytes(@varint.encode(0x14UL)[:])
-      buf.write_bytes(@varint.encode(v)[:])
+      buf.write_bytes(@quic.encode(0x14UL)[:])
+      buf.write_bytes(@quic.encode(v)[:])
     }
     StreamDataBlocked(id~, max~) => {
-      buf.write_bytes(@varint.encode(0x15UL)[:])
-      buf.write_bytes(@varint.encode(id)[:])
-      buf.write_bytes(@varint.encode(max)[:])
+      buf.write_bytes(@quic.encode(0x15UL)[:])
+      buf.write_bytes(@quic.encode(id)[:])
+      buf.write_bytes(@quic.encode(max)[:])
     }
     StreamsBlocked(bidi~, max~) => {
-      buf.write_bytes(@varint.encode(if bidi { 0x16UL } else { 0x17UL })[:])
-      buf.write_bytes(@varint.encode(max)[:])
+      buf.write_bytes(@quic.encode(if bidi { 0x16UL } else { 0x17UL })[:])
+      buf.write_bytes(@quic.encode(max)[:])
     }
     NewConnectionId(seq~, retire_prior_to~, conn_id~, reset_token~) => {
-      buf.write_bytes(@varint.encode(0x18UL)[:])
-      buf.write_bytes(@varint.encode(seq)[:])
-      buf.write_bytes(@varint.encode(retire_prior_to)[:])
+      buf.write_bytes(@quic.encode(0x18UL)[:])
+      buf.write_bytes(@quic.encode(seq)[:])
+      buf.write_bytes(@quic.encode(retire_prior_to)[:])
       buf.write_byte(conn_id.length().to_byte())
       buf.write_bytes(conn_id[:])
       buf.write_bytes(reset_token[:])
     }
     RetireConnectionId(seq) => {
-      buf.write_bytes(@varint.encode(0x19UL)[:])
-      buf.write_bytes(@varint.encode(seq)[:])
+      buf.write_bytes(@quic.encode(0x19UL)[:])
+      buf.write_bytes(@quic.encode(seq)[:])
     }
     PathChallenge(data) => {
-      buf.write_bytes(@varint.encode(0x1aUL)[:])
+      buf.write_bytes(@quic.encode(0x1aUL)[:])
       buf.write_bytes(data[:])
     }
     PathResponse(data) => {
-      buf.write_bytes(@varint.encode(0x1bUL)[:])
+      buf.write_bytes(@quic.encode(0x1bUL)[:])
       buf.write_bytes(data[:])
     }
-    HandshakeDone => buf.write_bytes(@varint.encode(0x1eUL)[:])
+    HandshakeDone => buf.write_bytes(@quic.encode(0x1eUL)[:])
     ConnectionClose(error_code~, frame_type~, reason~) => {
       match frame_type {
         Some(ft) => {
-          buf.write_bytes(@varint.encode(0x1cUL)[:])
-          buf.write_bytes(@varint.encode(error_code)[:])
-          buf.write_bytes(@varint.encode(ft)[:])
+          buf.write_bytes(@quic.encode(0x1cUL)[:])
+          buf.write_bytes(@quic.encode(error_code)[:])
+          buf.write_bytes(@quic.encode(ft)[:])
         }
         None => {
-          buf.write_bytes(@varint.encode(0x1dUL)[:])
-          buf.write_bytes(@varint.encode(error_code)[:])
+          buf.write_bytes(@quic.encode(0x1dUL)[:])
+          buf.write_bytes(@quic.encode(error_code)[:])
         }
       }
-      buf.write_bytes(@varint.encode(reason.length().to_uint64())[:])
+      buf.write_bytes(@quic.encode(reason.length().to_uint64())[:])
       buf.write_bytes(reason[:])
     }
   }
@@ -211,19 +211,19 @@ fn read_ack(
   start : Int,
 ) -> (UInt64, UInt64, UInt64, Array[(UInt64, UInt64)], Int)? {
   let mut off = start
-  guard @varint.decode(b[off:]) is Some((largest, l1)) else { return None }
+  guard @quic.decode(b[off:]) is Some((largest, l1)) else { return None }
   off = off + l1
-  guard @varint.decode(b[off:]) is Some((delay, l2)) else { return None }
+  guard @quic.decode(b[off:]) is Some((delay, l2)) else { return None }
   off = off + l2
-  guard @varint.decode(b[off:]) is Some((count, l3)) else { return None }
+  guard @quic.decode(b[off:]) is Some((count, l3)) else { return None }
   off = off + l3
-  guard @varint.decode(b[off:]) is Some((first_range, l4)) else { return None }
+  guard @quic.decode(b[off:]) is Some((first_range, l4)) else { return None }
   off = off + l4
   let ranges : Array[(UInt64, UInt64)] = []
   for _i = 0; _i < count.to_int(); _i = _i + 1 {
-    guard @varint.decode(b[off:]) is Some((gap, lg)) else { return None }
+    guard @quic.decode(b[off:]) is Some((gap, lg)) else { return None }
     off = off + lg
-    guard @varint.decode(b[off:]) is Some((rlen, lr)) else { return None }
+    guard @quic.decode(b[off:]) is Some((rlen, lr)) else { return None }
     off = off + lr
     ranges.push((gap, rlen))
   }
@@ -235,7 +235,7 @@ fn read_ack(
 /// `None` on a truncated frame or a type this brick does not yet decode. A PADDING
 /// frame absorbs the whole run of leading zero bytes.
 pub fn decode(b : BytesView) -> (Frame, Int)? {
-  guard @varint.decode(b) is Some((ftype, tlen)) else { return None }
+  guard @quic.decode(b) is Some((ftype, tlen)) else { return None }
   match ftype {
     0UL => {
       let mut n = 0
@@ -258,11 +258,11 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
         return None
       }
       let mut off = body_end
-      guard @varint.decode(b[off:]) is Some((ect0, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((ect0, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((ect1, l2)) else { return None }
+      guard @quic.decode(b[off:]) is Some((ect1, l2)) else { return None }
       off = off + l2
-      guard @varint.decode(b[off:]) is Some((ce, l3)) else { return None }
+      guard @quic.decode(b[off:]) is Some((ce, l3)) else { return None }
       off = off + l3
       Some(
         (
@@ -273,9 +273,9 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
     }
     6UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((offset, olen)) else { return None }
+      guard @quic.decode(b[off:]) is Some((offset, olen)) else { return None }
       off = off + olen
-      guard @varint.decode(b[off:]) is Some((length, llen)) else { return None }
+      guard @quic.decode(b[off:]) is Some((length, llen)) else { return None }
       off = off + llen
       let dlen = length.to_int()
       if b.length() < off + dlen {
@@ -291,18 +291,16 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
       let has_len = (ti & 0x02) != 0
       let fin = (ti & 0x01) != 0
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((id, ilen)) else { return None }
+      guard @quic.decode(b[off:]) is Some((id, ilen)) else { return None }
       off = off + ilen
       let mut offset = 0UL
       if has_off {
-        guard @varint.decode(b[off:]) is Some((o, olen)) else { return None }
+        guard @quic.decode(b[off:]) is Some((o, olen)) else { return None }
         offset = o
         off = off + olen
       }
       let data = if has_len {
-        guard @varint.decode(b[off:]) is Some((length, llen)) else {
-          return None
-        }
+        guard @quic.decode(b[off:]) is Some((length, llen)) else { return None }
         off = off + llen
         let dlen = length.to_int()
         if b.length() < off + dlen {
@@ -321,31 +319,25 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
     }
     4UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((id, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((id, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((error_code, l2)) else {
-        return None
-      }
+      guard @quic.decode(b[off:]) is Some((error_code, l2)) else { return None }
       off = off + l2
-      guard @varint.decode(b[off:]) is Some((final_size, l3)) else {
-        return None
-      }
+      guard @quic.decode(b[off:]) is Some((final_size, l3)) else { return None }
       off = off + l3
       Some((ResetStream(id~, error_code~, final_size~), off))
     }
     5UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((id, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((id, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((error_code, l2)) else {
-        return None
-      }
+      guard @quic.decode(b[off:]) is Some((error_code, l2)) else { return None }
       off = off + l2
       Some((StopSending(id~, error_code~), off))
     }
     7UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((length, ll)) else { return None }
+      guard @quic.decode(b[off:]) is Some((length, ll)) else { return None }
       off = off + ll
       let n = length.to_int()
       if b.length() < off + n {
@@ -356,42 +348,42 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
       Some((NewToken(token~), off))
     }
     0x10UL => {
-      guard @varint.decode(b[tlen:]) is Some((v, vl)) else { return None }
+      guard @quic.decode(b[tlen:]) is Some((v, vl)) else { return None }
       Some((MaxData(v), tlen + vl))
     }
     0x11UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((id, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((id, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((max, l2)) else { return None }
+      guard @quic.decode(b[off:]) is Some((max, l2)) else { return None }
       off = off + l2
       Some((MaxStreamData(id~, max~), off))
     }
     ty if ty == 0x12UL || ty == 0x13UL => {
-      guard @varint.decode(b[tlen:]) is Some((max, vl)) else { return None }
+      guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
       Some((MaxStreams(bidi=ty == 0x12UL, max~), tlen + vl))
     }
     0x14UL => {
-      guard @varint.decode(b[tlen:]) is Some((v, vl)) else { return None }
+      guard @quic.decode(b[tlen:]) is Some((v, vl)) else { return None }
       Some((DataBlocked(v), tlen + vl))
     }
     0x15UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((id, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((id, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((max, l2)) else { return None }
+      guard @quic.decode(b[off:]) is Some((max, l2)) else { return None }
       off = off + l2
       Some((StreamDataBlocked(id~, max~), off))
     }
     ty if ty == 0x16UL || ty == 0x17UL => {
-      guard @varint.decode(b[tlen:]) is Some((max, vl)) else { return None }
+      guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
       Some((StreamsBlocked(bidi=ty == 0x16UL, max~), tlen + vl))
     }
     0x18UL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((seq, l1)) else { return None }
+      guard @quic.decode(b[off:]) is Some((seq, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((retire_prior_to, l2)) else {
+      guard @quic.decode(b[off:]) is Some((retire_prior_to, l2)) else {
         return None
       }
       off = off + l2
@@ -412,7 +404,7 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
       )
     }
     0x19UL => {
-      guard @varint.decode(b[tlen:]) is Some((seq, vl)) else { return None }
+      guard @quic.decode(b[tlen:]) is Some((seq, vl)) else { return None }
       Some((RetireConnectionId(seq), tlen + vl))
     }
     0x1aUL => {
@@ -430,13 +422,11 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
     0x1eUL => Some((HandshakeDone, tlen))
     0x1cUL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((error_code, l1)) else {
-        return None
-      }
+      guard @quic.decode(b[off:]) is Some((error_code, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((ft, l2)) else { return None }
+      guard @quic.decode(b[off:]) is Some((ft, l2)) else { return None }
       off = off + l2
-      guard @varint.decode(b[off:]) is Some((rlen, l3)) else { return None }
+      guard @quic.decode(b[off:]) is Some((rlen, l3)) else { return None }
       off = off + l3
       let n = rlen.to_int()
       if b.length() < off + n {
@@ -448,11 +438,9 @@ pub fn decode(b : BytesView) -> (Frame, Int)? {
     }
     0x1dUL => {
       let mut off = tlen
-      guard @varint.decode(b[off:]) is Some((error_code, l1)) else {
-        return None
-      }
+      guard @quic.decode(b[off:]) is Some((error_code, l1)) else { return None }
       off = off + l1
-      guard @varint.decode(b[off:]) is Some((rlen, l2)) else { return None }
+      guard @quic.decode(b[off:]) is Some((rlen, l2)) else { return None }
       off = off + l2
       let n = rlen.to_int()
       if b.length() < off + n {

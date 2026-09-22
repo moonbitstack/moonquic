@@ -1,7 +1,0 @@
-// QUIC's variable-length integers, RFC 9000 §16:
-// https://www.rfc-editor.org/rfc/rfc9000#section-16
-//
-// Two bits of the first octet say how many octets the integer occupies, so a
-// small number costs one octet and a large one costs eight. Nearly every field
-// in QUIC is written this way, which is why this is its own package and why it
-// has no dependencies.

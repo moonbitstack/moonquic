@@ -9,7 +9,7 @@
 // It holds no socket and no clock: the peer's address is a type parameter, every entry
 // point takes `now`, and the signing key arrives as a `@spec.Signer` the caller keeps.
 import {
-  "moonbitstack/moonquic/varint",
+  "moonbitstack/moonvar/quic",
   "moonbitstack/moonquic/frame",
   "moonbitstack/moonquic/packet",
   "moonbitstack/moonquic/crypto",

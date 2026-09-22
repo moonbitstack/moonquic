@@ -1,5 +1,5 @@
 import {
-  "moonbitstack/moonquic/varint",
+  "moonbitstack/moonvar/quic",
   "moonbitstack/moonquic/frame",
   "moonbitstack/moonquic/packet",
   "moonbitstack/moonquic/crypto",
