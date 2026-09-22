@@ -232,6 +232,35 @@ test "a key update changes the secret and the keys, and keeps changing them" {
 }
 
 ///|
+test "the handshake and application keys are the traffic secrets' own keys" {
+  // Which secret keys which space is the whole of what RFC 9001 §5.2 adds on top of
+  // TLS's schedule, so the composition is what there is to check: `handshake` must be
+  // `Keys::of` over the handshake traffic secret, and nothing else.
+  let handshake_secret = qc_hexb(
+    "9ac312a7f877468ebe69422748ad00a15443f18203a07d6060f688f30f21632b",
+  )
+  let transcript = qc_hexb(
+    "0101010101010101010101010101010101010101010101010101010101010101",
+  )
+  assert_eq(
+    handshake(handshake_secret[:], transcript[:], client=true),
+    Keys::of(@keys.client_handshake(handshake_secret[:], transcript[:])[:]),
+  )
+  assert_eq(
+    handshake(handshake_secret[:], transcript[:], client=false),
+    Keys::of(@keys.server_handshake(handshake_secret[:], transcript[:])[:]),
+  )
+  assert_eq(
+    application(handshake_secret[:], transcript[:], client=true),
+    Keys::of(@keys.client_application(handshake_secret[:], transcript[:])[:]),
+  )
+  assert_eq(
+    application(handshake_secret[:], transcript[:], client=false),
+    Keys::of(@keys.server_application(handshake_secret[:], transcript[:])[:]),
+  )
+}
+
+///|
 test "the two directions get different keys from the same secrets" {
   let handshake_secret = qc_hexb(
     "9ac312a7f877468ebe69422748ad00a15443f18203a07d6060f688f30f21632b",
