@@ -1,0 +1,251 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/conn"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitstack/mooncrypt/spec",
+  "moonbitstack/moonquic/crypto",
+  "moonbitstack/moonquic/frame",
+  "moonbitstack/moonquic/packet",
+  "moonbitstack/moonquic/recovery",
+  "moonbitstack/moonquic/stream",
+  "moonbitstack/moontls/alert",
+  "moonbitstack/moontls/ext",
+  "moonbitstack/moontls/hs",
+  "moonbitstack/moontls/msg",
+}
+
+// Values
+pub let amplification : Int64
+
+pub fn decode(BytesView) -> Array[Param]?
+
+pub fn encode(ArrayView[Param]) -> Bytes
+
+pub fn extension(ArrayView[Param]) -> @ext.Ext
+
+pub fn find(ArrayView[Param], Kind) -> Param?
+
+pub fn idle_timeout(Int64, Int64) -> Int64
+
+pub let limits : Limits
+
+pub let min_datagram : Int
+
+pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
+
+pub fn signed(&@spec.Signer, scheme? : Int) -> (Bytes) -> Bytes
+
+// Errors
+
+// Types and methods
+pub(all) struct Config {
+  version : UInt
+  idle_timeout : Int64
+  close_period : Int64
+  max_datagram : Int64
+  max_ack_delay : Int64
+  granularity : Int64
+  initial_max_data : UInt64
+  initial_max_stream_data : UInt64
+  max_frame : UInt64
+}
+pub fn Config::default() -> Self
+
+pub struct Conn {
+  is_server : Bool
+  initial_space : @packet.Space
+  handshake_space : @packet.Space
+  application_space : @packet.Space
+  initial_crypto : @stream.Assembler
+  handshake_crypto : @stream.Assembler
+  application_crypto : @stream.Assembler
+}
+pub fn Conn::build_ack(Self, Level, UInt64) -> @frame.Frame?
+pub fn Conn::crypto_stream(Self, Level) -> @stream.Assembler
+pub fn Conn::is_server(Self) -> Bool
+pub fn Conn::new(Bool) -> Self
+pub fn Conn::next_packet_number(Self, Level) -> Int64
+pub fn Conn::on_ack_received(Self, Level, Int64) -> Unit
+pub fn Conn::on_crypto_frame(Self, Level, UInt64, Bytes) -> Bytes raise @stream.Refused
+pub fn Conn::on_packet_received(Self, Level, Int64, Bool) -> Unit
+pub fn Conn::space(Self, Level) -> @packet.Space
+
+pub struct Endpoint[A] {
+  conns : Map[Bytes, Session[A]]
+  cfg : Config
+}
+pub fn[A] Endpoint::close(Self[A], Bytes, UInt64, Bytes, Int64) -> Unit
+pub fn[A] Endpoint::conn(Self[A], Bytes) -> Session[A]?
+pub fn[A] Endpoint::conn_ids(Self[A]) -> Array[Bytes]
+pub fn[A] Endpoint::count(Self[A]) -> Int
+pub fn[A] Endpoint::new(Config) -> Self[A]
+pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
+pub fn[A] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
+pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
+
+pub(all) enum Kind {
+  OriginalDcid
+  MaxIdleTimeout
+  StatelessResetToken
+  MaxUdpPayload
+  MaxData
+  MaxStreamDataBidiLocal
+  MaxStreamDataBidiRemote
+  MaxStreamDataUni
+  MaxStreamsBidi
+  MaxStreamsUni
+  AckDelayExponent
+  MaxAckDelay
+  DisableActiveMigration
+  PreferredAddress
+  ActiveConnectionIdLimit
+  InitialScid
+  RetryScid
+  MaxDatagramFrameSize
+  Other(UInt64)
+} derive(Eq, @debug.Debug)
+pub fn Kind::code(Self) -> UInt64
+pub fn Kind::equal(Self, Self) -> Bool
+pub fn Kind::not_equal(Self, Self) -> Bool
+pub fn Kind::of(UInt64) -> Self
+pub fn Kind::server_only(Self) -> Bool
+pub fn Kind::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Level {
+  Initial
+  Handshake
+  Application
+} derive(Eq, @debug.Debug)
+pub fn Level::equal(Self, Self) -> Bool
+pub fn Level::not_equal(Self, Self) -> Bool
+pub fn Level::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Limits {
+  idle_timeout : UInt64
+  udp_payload : UInt64
+  data : UInt64
+  stream_data_bidi_local : UInt64
+  stream_data_bidi_remote : UInt64
+  stream_data_uni : UInt64
+  streams_bidi : UInt64
+  streams_uni : UInt64
+  ack_delay_exponent : UInt64
+  max_ack_delay : UInt64
+  active_connection_ids : UInt64
+  migration : Bool
+  datagram_frame : UInt64
+} derive(Eq, @debug.Debug)
+pub fn Limits::equal(Self, Self) -> Bool
+pub fn Limits::new(idle_timeout? : UInt64, udp_payload? : UInt64, data? : UInt64, stream_data_bidi_local? : UInt64, stream_data_bidi_remote? : UInt64, stream_data_uni? : UInt64, streams_bidi? : UInt64, streams_uni? : UInt64, ack_delay_exponent? : UInt64, max_ack_delay? : UInt64, active_connection_ids? : UInt64, migration? : Bool, datagram_frame? : UInt64) -> Self
+pub fn Limits::not_equal(Self, Self) -> Bool
+pub fn Limits::params(Self) -> Array[Param]
+pub fn Limits::read(ArrayView[Param], base? : Self) -> Self
+pub fn Limits::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Param {
+  kind : Kind
+  value : Bytes
+} derive(Eq, @debug.Debug)
+pub fn Param::as_int(Self) -> UInt64?
+pub fn Param::equal(Self, Self) -> Bool
+pub fn Param::flag(Kind) -> Self
+pub fn Param::int(Kind, UInt64) -> Self
+pub fn Param::not_equal(Self, Self) -> Bool
+pub fn Param::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Phase {
+  Active
+  Closing
+  Draining
+} derive(Eq, @debug.Debug)
+pub fn Phase::equal(Self, Self) -> Bool
+pub fn Phase::not_equal(Self, Self) -> Bool
+pub fn Phase::to_repr(Self) -> @debug.Repr
+
+pub struct Sender {
+  sched : @stream.Scheduler
+  recovery : @recovery.State
+  data : Map[UInt64, Bytes]
+  in_packet : Map[Int64, Array[@stream.Chunk]]
+  retransmit : Array[@stream.Chunk]
+  mut next_pn : Int64
+}
+pub fn Sender::advance_past(Self, Int64) -> Unit
+pub fn Sender::new(UInt64, UInt64, Int64, Int64, Int64, UInt64) -> Self
+pub fn Sender::on_ack(Self, @frame.Frame, Int64) -> Unit raise
+pub fn Sender::on_max_data(Self, UInt64) -> Unit
+pub fn Sender::on_pto_timeout(Self, Int64) -> Bool
+pub fn Sender::outstanding(Self) -> Array[Int64]
+pub fn Sender::poll_send(Self, Int64) -> (Int64, Array[@frame.Frame])? raise
+pub fn Sender::queue_fin(Self, UInt64) -> Unit
+pub fn Sender::queue_stream(Self, UInt64, Bytes) -> Unit
+pub fn Sender::window(Self) -> Int64
+
+pub struct Server {
+  initial_keys : @crypto.Keys
+  handshake : @hs.Handshake
+  conn : Conn
+}
+pub fn Server::client_hello(Self) -> Bytes
+pub fn Server::handshake_state(Self) -> @hs.Server
+pub fn Server::initial_ack_pending(Self) -> Bool
+pub fn Server::negotiate(Self) -> @hs.Choice raise @alert.Alert
+pub fn Server::new(Bytes) -> Self
+pub fn Server::on_frames(Self, Level, Array[@frame.Frame], Int64) -> Array[@msg.Kind] raise
+pub fn Server::on_handshake_frames(Self, Array[@frame.Frame], Int64, Bytes) -> Bool raise
+pub fn Server::receive_handshake(Self, Bytes, @crypto.Keys, Bytes) -> Bool raise
+pub fn Server::receive_initial(Self, Bytes) -> Array[@msg.Kind] raise
+pub fn Server::send_handshake_flight(Self, Bytes, Bytes, Bytes, (Bytes) -> Bytes, Bytes, Bytes, Int64) -> Bytes raise
+pub fn Server::send_server_hello(Self, @msg.Server, Bytes, Bytes, Int64) -> Bytes
+pub fn Server::transcript_hash(Self) -> Bytes
+
+pub struct Session[A] {
+  peer : A
+  cid : Bytes
+  peer_cid : Bytes
+  core : Server
+  sender : Sender
+  cfg : Config
+  out : Array[Bytes]
+  received : Array[(Level, @frame.Frame)]
+  mut rx : Int64
+  mut tx : Int64
+  mut packets : Int
+  mut validated : Bool
+  mut last_rx : Int64
+  mut idle_timeout : Int64
+  mut phase : Phase
+  mut close_at : Int64
+  mut close_frame : @frame.Frame?
+  mut close_level : Level
+  mut hs_rx : @crypto.Keys?
+  mut hs_rx_secret : Bytes
+  mut hs_tx : @crypto.Keys?
+  mut app_rx : @crypto.Keys?
+  mut app_tx : @crypto.Keys?
+}
+pub fn[A] Session::apply_peer_params(Self[A], Array[Param]) -> Unit
+pub fn[A] Session::can_send(Self[A], Int) -> Bool
+pub fn[A] Session::cid(Self[A]) -> Bytes
+pub fn[A] Session::close(Self[A], UInt64, Bytes, Int64) -> Unit
+pub fn[A] Session::core(Self[A]) -> Server
+pub fn[A] Session::idle_timeout(Self[A]) -> Int64
+pub fn[A] Session::install_app_keys(Self[A], Bytes, Bytes) -> Unit
+pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
+pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
+pub fn[A] Session::packets_received(Self[A]) -> Int
+pub fn[A] Session::peer(Self[A]) -> A
+pub fn[A] Session::pending(Self[A]) -> Int
+pub fn[A] Session::phase(Self[A]) -> Phase
+pub fn[A] Session::queue_stream(Self[A], UInt64, Bytes) -> Unit
+pub fn[A] Session::rx_bytes(Self[A]) -> Int64
+pub fn[A] Session::send(Self[A], Level, Array[@frame.Frame]) -> Unit
+pub fn[A] Session::send_level(Self[A]) -> Level
+pub fn[A] Session::take_received(Self[A]) -> Array[(Level, @frame.Frame)]
+pub fn[A] Session::tx_bytes(Self[A]) -> Int64
+pub fn[A] Session::validated(Self[A]) -> Bool
+
+// Type aliases
+
+// Traits

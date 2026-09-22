@@ -342,8 +342,15 @@ pub fn number_size(full_pn : Int64, largest_acked : Int64?) -> Int {
 ///|
 /// Encode `full_pn` as its truncated big-endian packet number, using the shortest
 /// length that is unambiguous given `largest_acked` (RFC 9000 A.2).
-pub fn number(full_pn : Int64, largest_acked : Int64?) -> Bytes {
-  let nb = number_size(full_pn, largest_acked)
+///
+/// `size` writes that many bytes instead. A sender that has already decided how long
+/// its packet numbers are — a handshake that fixes four, a test with a vector to
+/// match — says so rather than having the length inferred back.
+pub fn number(full_pn : Int64, largest_acked : Int64?, size? : Int) -> Bytes {
+  let nb = match size {
+    Some(n) => n
+    None => number_size(full_pn, largest_acked)
+  }
   let buf = Buffer()
   for i = nb - 1; i >= 0; i = i - 1 {
     buf.write_byte((full_pn >> (i * 8)).to_byte())

@@ -11,7 +11,7 @@ pub fn encode_long(Long) -> Bytes
 
 pub fn encode_short(Short) -> Bytes
 
-pub fn number(Int64, Int64?) -> Bytes
+pub fn number(Int64, Int64?, size? : Int) -> Bytes
 
 pub fn number_size(Int64, Int64?) -> Int
 
