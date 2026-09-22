@@ -1,0 +1,9 @@
+// QUIC streams, RFC 9000 §2, §3 and §4:
+// https://www.rfc-editor.org/rfc/rfc9000#section-2
+//
+// What a stream ID says about the stream (§2.1), the two state machines (§3.1, §3.2),
+// reassembling out-of-order fragments (§2.2), data flow control both ways and the
+// stream-count quota (§4.1, §4.6), and a round-robin scheduler over what is queued.
+//
+// Not a byte of it touches a packet: the connection turns these decisions into STREAM
+// frames and these frames back into decisions.

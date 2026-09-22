@@ -1,0 +1,224 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "moonbitstack/moonquic/stream"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn direction(UInt64) -> Direction
+
+pub let frame : UInt64
+
+pub fn id_of(Initiator, Direction, UInt64) -> UInt64
+
+pub fn initiator(UInt64) -> Initiator
+
+pub fn is_bidi(UInt64) -> Bool
+
+pub fn is_client(UInt64) -> Bool
+
+pub fn is_local(UInt64, server~ : Bool) -> Bool
+
+pub fn is_writable(UInt64, server~ : Bool) -> Bool
+
+pub let limit : UInt64
+
+pub let ratio : Double
+
+pub fn sequence(UInt64) -> UInt64
+
+// Errors
+pub(all) suberror Refused {
+  Illegal(String)
+  Exceeded(limit~ : UInt64, got~ : UInt64)
+  Conflict(String)
+} derive(Eq)
+pub fn Refused::equal(Self, Self) -> Bool
+pub fn Refused::not_equal(Self, Self) -> Bool
+pub fn Refused::output(Self, &Logger) -> Unit
+pub fn Refused::to_string(Self) -> String
+pub impl Show for Refused
+
+// Types and methods
+pub struct Assembler {
+  mut consumed : UInt64
+  mut runs : Array[(UInt64, Bytes)]
+  mut final_size : UInt64?
+  limit : UInt64
+}
+pub fn Assembler::buffered(Self) -> UInt64
+pub fn Assembler::complete(Self) -> Bool
+pub fn Assembler::consumed(Self) -> UInt64
+pub fn Assembler::final_size(Self) -> UInt64?
+pub fn Assembler::insert(Self, UInt64, Bytes, fin~ : Bool) -> Unit raise Refused
+pub fn Assembler::new(limit? : UInt64) -> Self
+pub fn Assembler::read(Self) -> Bytes
+
+pub struct Budget {
+  connection : Credit
+  streams : Map[UInt64, Credit]
+  initial : UInt64
+}
+pub fn Budget::available(Self, UInt64) -> UInt64
+pub fn Budget::connection(Self) -> UInt64
+pub fn Budget::new(UInt64, UInt64) -> Self
+pub fn Budget::on_max_data(Self, UInt64) -> Unit
+pub fn Budget::on_max_stream_data(Self, UInt64, UInt64) -> Unit
+pub fn Budget::spend(Self, UInt64, UInt64) -> Unit raise Refused
+pub fn Budget::stream(Self, UInt64) -> Credit
+
+pub(all) struct Chunk {
+  stream : UInt64
+  offset : UInt64
+  length : UInt64
+  fin : Bool
+} derive(Eq, @debug.Debug)
+pub fn Chunk::equal(Self, Self) -> Bool
+pub fn Chunk::not_equal(Self, Self) -> Bool
+pub fn Chunk::to_repr(Self) -> @debug.Repr
+
+pub struct Credit {
+  mut spent : UInt64
+  mut limit : UInt64
+}
+pub fn Credit::available(Self) -> UInt64
+pub fn Credit::blocked(Self) -> Bool
+pub fn Credit::grant(Self, UInt64) -> Unit
+pub fn Credit::new(UInt64) -> Self
+pub fn Credit::sent(Self) -> UInt64
+pub fn Credit::spend(Self, UInt64) -> Unit raise Refused
+
+pub(all) enum Direction {
+  Bidi
+  Uni
+} derive(Eq, @debug.Debug)
+pub fn Direction::equal(Self, Self) -> Bool
+pub fn Direction::not_equal(Self, Self) -> Bool
+pub fn Direction::to_repr(Self) -> @debug.Repr
+
+type Incoming
+
+pub(all) enum Initiator {
+  Client
+  Server
+} derive(Eq, @debug.Debug)
+pub fn Initiator::equal(Self, Self) -> Bool
+pub fn Initiator::not_equal(Self, Self) -> Bool
+pub fn Initiator::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Out {
+  mut pending : UInt64
+  mut offset : UInt64
+  mut fin_queued : Bool
+  mut fin_sent : Bool
+} derive(Eq, @debug.Debug)
+pub fn Out::equal(Self, Self) -> Bool
+pub fn Out::not_equal(Self, Self) -> Bool
+pub fn Out::to_repr(Self) -> @debug.Repr
+
+pub struct Quota {
+  mut limit : UInt64
+  mut opened : UInt64
+}
+pub fn Quota::available(Self) -> UInt64
+pub fn Quota::grant(Self, UInt64) -> Unit
+pub fn Quota::new(UInt64) -> Self
+pub fn Quota::open(Self, UInt64) -> Unit raise Refused
+
+pub(all) enum Receiving {
+  Recv
+  SizeKnown
+  DataReceived
+  DataRead
+  ResetReceived
+  ResetRead
+} derive(Eq, @debug.Debug)
+pub fn Receiving::equal(Self, Self) -> Bool
+pub fn Receiving::next(Self, RecvEvent) -> Self raise Refused
+pub fn Receiving::not_equal(Self, Self) -> Bool
+pub fn Receiving::to_repr(Self) -> @debug.Repr
+
+pub(all) enum RecvEvent {
+  Receive(fin~ : Bool)
+  AllReceived
+  AppRead
+  ReceiveReset
+  AppReadReset
+} derive(Eq, @debug.Debug)
+pub fn RecvEvent::equal(Self, Self) -> Bool
+pub fn RecvEvent::not_equal(Self, Self) -> Bool
+pub fn RecvEvent::to_repr(Self) -> @debug.Repr
+
+pub struct Scheduler {
+  budget : Budget
+  streams : Map[UInt64, Out]
+  order : Array[UInt64]
+  mut cursor : Int
+  frame : UInt64
+}
+pub fn Scheduler::new(Budget, frame? : UInt64) -> Self
+pub fn Scheduler::next(Self) -> Chunk? raise Refused
+pub fn Scheduler::on_max_data(Self, UInt64) -> Unit
+pub fn Scheduler::on_max_stream_data(Self, UInt64, UInt64) -> Unit
+pub fn Scheduler::queue(Self, UInt64, UInt64) -> Unit
+pub fn Scheduler::queue_fin(Self, UInt64) -> Unit
+
+pub(all) enum SendEvent {
+  Write(fin~ : Bool)
+  AllAcked
+  ResetStream
+  ResetAcked
+} derive(Eq, @debug.Debug)
+pub fn SendEvent::equal(Self, Self) -> Bool
+pub fn SendEvent::not_equal(Self, Self) -> Bool
+pub fn SendEvent::to_repr(Self) -> @debug.Repr
+
+pub(all) enum Sending {
+  Ready
+  Send
+  DataSent
+  DataRecvd
+  ResetSent
+  ResetRecvd
+} derive(Eq, @debug.Debug)
+pub fn Sending::equal(Self, Self) -> Bool
+pub fn Sending::next(Self, SendEvent) -> Self raise Refused
+pub fn Sending::not_equal(Self, Self) -> Bool
+pub fn Sending::to_repr(Self) -> @debug.Repr
+
+pub struct Streams {
+  streams : Map[UInt64, Incoming]
+  connection : Window
+  mut charged : UInt64
+  size : UInt64
+  bidi : Quota
+  uni : Quota
+  server : Bool
+}
+pub fn Streams::count(Self) -> Int
+pub fn Streams::max_data(Self) -> UInt64?
+pub fn Streams::max_stream_data(Self, UInt64) -> UInt64?
+pub fn Streams::new(UInt64, UInt64, server~ : Bool, bidi? : Quota, uni? : Quota) -> Self
+pub fn Streams::on_stream(Self, UInt64, UInt64, Bytes, fin~ : Bool) -> Bytes raise Refused
+pub fn Streams::read(Self, UInt64) -> Bytes
+pub fn Streams::window(Self, UInt64) -> Window
+
+pub struct Window {
+  mut received : UInt64
+  mut consumed : UInt64
+  mut limit : UInt64
+  size : UInt64
+  ratio : Double
+}
+pub fn Window::arrived(Self, UInt64) -> Unit raise Refused
+pub fn Window::consume(Self, UInt64) -> Unit
+pub fn Window::consumed(Self) -> UInt64
+pub fn Window::grant(Self) -> UInt64
+pub fn Window::limit(Self) -> UInt64
+pub fn Window::new(UInt64, ratio? : Double) -> Self
+pub fn Window::should_grant(Self) -> Bool
+
+// Type aliases
+
+// Traits
