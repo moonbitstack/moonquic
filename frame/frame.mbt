@@ -231,10 +231,10 @@ fn read_ack(
 }
 
 ///|
-/// Parse one frame at the start of `b`, returning it and the bytes it occupied, or
+/// Read one frame at the start of `b`, returning it and the bytes it occupied, or
 /// `None` on a truncated frame or a type this brick does not yet decode. A PADDING
 /// frame absorbs the whole run of leading zero bytes.
-pub fn parse(b : BytesView) -> (Frame, Int)? {
+pub fn decode(b : BytesView) -> (Frame, Int)? {
   guard @varint.decode(b) is Some((ftype, tlen)) else { return None }
   match ftype {
     0UL => {

@@ -44,7 +44,7 @@ test "CRYPTO frame encodes and parses per RFC 9000 §19.6" {
   // offset 1, data aabb -> type 06, offset 01, length 02, then the data.
   let f : Frame = Crypto(offset=1UL, data=qv_hexb("aabb"))
   assert_eq(qv_hex(encode(f)), "060102aabb")
-  match parse(qv_hexb("060102aabb")[:]) {
+  match decode(qv_hexb("060102aabb")[:]) {
     Some((g, n)) => {
       assert_eq(g, f)
       assert_eq(n, 5)
@@ -56,7 +56,7 @@ test "CRYPTO frame encodes and parses per RFC 9000 §19.6" {
 ///|
 test "PING and PADDING frames round-trip" {
   assert_eq(qv_hex(encode(Ping)), "01")
-  match parse(qv_hexb("01")[:]) {
+  match decode(qv_hexb("01")[:]) {
     Some((g, n)) => {
       assert_eq(g, Ping)
       assert_eq(n, 1)
@@ -65,7 +65,7 @@ test "PING and PADDING frames round-trip" {
   }
   assert_eq(qv_hex(encode(Padding(3))), "000000")
   // A run of zero bytes is one PADDING frame; it stops at the following PING byte.
-  match parse(qv_hexb("00000001")[:]) {
+  match decode(qv_hexb("00000001")[:]) {
     Some((g, n)) => {
       assert_eq(g, Padding(3))
       assert_eq(n, 3)
@@ -80,7 +80,7 @@ test "CRYPTO frame with a large offset uses a multi-byte varint" {
   // offset 15293 encodes as the two-byte varint 7bbd.
   let enc = encode(f)
   assert_eq(qv_hex(enc), "067bbd0100")
-  match parse(enc[:]) {
+  match decode(enc[:]) {
     Some((g, _)) => assert_eq(g, f)
     None => fail("expected CRYPTO")
   }
@@ -89,7 +89,7 @@ test "CRYPTO frame with a large offset uses a multi-byte varint" {
 ///|
 test "a truncated CRYPTO frame parses to None" {
   // Declares 4 bytes of crypto data but supplies only 1.
-  assert_eq(parse(qv_hexb("060004aa")[:]) is None, true)
+  assert_eq(decode(qv_hexb("060004aa")[:]) is None, true)
 }
 
 ///|
@@ -102,7 +102,7 @@ test "STREAM frame round-trips with offset, length, and FIN (RFC 9000 §19.8)" {
     data=qv_hexb("68656c6c6f"),
   )
   assert_eq(qv_hex(encode(f)), "0e04000568656c6c6f")
-  match parse(qv_hexb("0e04000568656c6c6f")[:]) {
+  match decode(qv_hexb("0e04000568656c6c6f")[:]) {
     Some((g, n)) => {
       assert_eq(g, f)
       assert_eq(n, 9)
@@ -112,7 +112,7 @@ test "STREAM frame round-trips with offset, length, and FIN (RFC 9000 §19.8)" {
   // FIN rides the low bit of the type (0f).
   let ff : Frame = Stream(id=4UL, offset=10UL, fin=true, data=qv_hexb("78"))
   assert_eq(qv_hex(encode(ff)), "0f040a0178")
-  match parse(qv_hexb("0f040a0178")[:]) {
+  match decode(qv_hexb("0f040a0178")[:]) {
     Some((g, _)) => assert_eq(g, ff)
     None => fail("expected a STREAM frame with FIN")
   }
@@ -123,7 +123,7 @@ test "ACK frame encodes and parses per RFC 9000 §19.3" {
   // largest 10, delay 0, no additional ranges, first range 3.
   let f : Frame = Ack(largest=10UL, delay=0UL, first_range=3UL, ranges=[])
   assert_eq(qv_hex(encode(f)), "020a000003")
-  match parse(qv_hexb("020a000003")[:]) {
+  match decode(qv_hexb("020a000003")[:]) {
     Some((g, n)) => {
       assert_eq(g, f)
       assert_eq(n, 5)
@@ -135,7 +135,7 @@ test "ACK frame encodes and parses per RFC 9000 §19.3" {
     (1UL, 3UL),
   ])
   assert_eq(qv_hex(encode(f2)), "020a0001020103")
-  match parse(qv_hexb("020a0001020103")[:]) {
+  match decode(qv_hexb("020a0001020103")[:]) {
     Some((g, n)) => {
       assert_eq(g, f2)
       assert_eq(n, 7)
@@ -147,13 +147,13 @@ test "ACK frame encodes and parses per RFC 9000 §19.3" {
 ///|
 test "a truncated ACK frame parses to None" {
   // Declares one range but supplies no gap/length pair.
-  assert_eq(parse(qv_hexb("020a000102")[:]) is None, true)
+  assert_eq(decode(qv_hexb("020a000102")[:]) is None, true)
 }
 
 ///|
 test "MAX_DATA and HANDSHAKE_DONE frames round-trip (RFC 9000 §19.9 / §19.20)" {
   assert_eq(qv_hex(encode(MaxData(15293UL))), "107bbd")
-  match parse(qv_hexb("107bbd")[:]) {
+  match decode(qv_hexb("107bbd")[:]) {
     Some((g, n)) => {
       assert_eq(g, MaxData(15293UL))
       assert_eq(n, 3)
@@ -161,7 +161,7 @@ test "MAX_DATA and HANDSHAKE_DONE frames round-trip (RFC 9000 §19.9 / §19.20)"
     None => fail("expected MAX_DATA")
   }
   assert_eq(qv_hex(encode(HandshakeDone)), "1e")
-  match parse(qv_hexb("1e")[:]) {
+  match decode(qv_hexb("1e")[:]) {
     Some((g, n)) => {
       assert_eq(g, HandshakeDone)
       assert_eq(n, 1)
@@ -179,7 +179,7 @@ test "CONNECTION_CLOSE transport and application variants (RFC 9000 §19.19)" {
     reason=qv_hexb("6279"),
   )
   assert_eq(qv_hex(encode(t)), "1c0708026279")
-  match parse(qv_hexb("1c0708026279")[:]) {
+  match decode(qv_hexb("1c0708026279")[:]) {
     Some((g, _)) => assert_eq(g, t)
     None => fail("expected a transport CONNECTION_CLOSE")
   }
@@ -190,7 +190,7 @@ test "CONNECTION_CLOSE transport and application variants (RFC 9000 §19.19)" {
     reason=qv_hexb(""),
   )
   assert_eq(qv_hex(encode(a)), "1d0100")
-  match parse(qv_hexb("1d0100")[:]) {
+  match decode(qv_hexb("1d0100")[:]) {
     Some((g, _)) => assert_eq(g, a)
     None => fail("expected an application CONNECTION_CLOSE")
   }
@@ -199,7 +199,7 @@ test "CONNECTION_CLOSE transport and application variants (RFC 9000 §19.19)" {
 ///|
 test "a STREAM frame with no length field runs to the end of the buffer" {
   // type 0c = OFF set, LEN clear: stream id, offset, then data to the end.
-  match parse(qv_hexb("0c0400aabb")[:]) {
+  match decode(qv_hexb("0c0400aabb")[:]) {
     Some((g, n)) => {
       assert_eq(g, Stream(id=4UL, offset=0UL, fin=false, data=qv_hexb("aabb")))
       assert_eq(n, 5)
@@ -213,7 +213,7 @@ test "RESET_STREAM and STOP_SENDING round-trip (RFC 9000 §19.4/§19.5)" {
   let rs : Frame = ResetStream(id=4UL, error_code=0UL, final_size=100UL)
   // type 04, id 04, error 00, final_size 100 -> two-byte varint 4064.
   assert_eq(qv_hex(encode(rs)), "0404004064")
-  match parse(qv_hexb("0404004064")[:]) {
+  match decode(qv_hexb("0404004064")[:]) {
     Some((g, n)) => {
       assert_eq(g, rs)
       assert_eq(n, 5)
@@ -222,7 +222,7 @@ test "RESET_STREAM and STOP_SENDING round-trip (RFC 9000 §19.4/§19.5)" {
   }
   let ss : Frame = StopSending(id=8UL, error_code=2UL)
   assert_eq(qv_hex(encode(ss)), "050802")
-  match parse(qv_hexb("050802")[:]) {
+  match decode(qv_hexb("050802")[:]) {
     Some((g, _)) => assert_eq(g, ss)
     None => fail("expected STOP_SENDING")
   }
@@ -241,7 +241,7 @@ test "flow-control frames round-trip (RFC 9000 §19.10-§19.14)" {
   ]
   for f in frames {
     let enc = encode(f)
-    match parse(enc[:]) {
+    match decode(enc[:]) {
       Some((g, n)) => {
         assert_eq(g, f)
         assert_eq(n, enc.length())
@@ -258,7 +258,7 @@ test "flow-control frames round-trip (RFC 9000 §19.10-§19.14)" {
 test "connection-management and path frames round-trip (RFC 9000 §19.7/§19.15-§19.18)" {
   let nt : Frame = NewToken(token=qv_hexb("aabbcc"))
   assert_eq(qv_hex(encode(nt)), "0703aabbcc")
-  match parse(qv_hexb("0703aabbcc")[:]) {
+  match decode(qv_hexb("0703aabbcc")[:]) {
     Some((g, _)) => assert_eq(g, nt)
     None => fail("expected NEW_TOKEN")
   }
@@ -272,19 +272,19 @@ test "connection-management and path frames round-trip (RFC 9000 §19.7/§19.15-
     qv_hex(encode(nci)),
     "18010004aabbccdd000102030405060708090a0b0c0d0e0f",
   )
-  match parse(encode(nci)[:]) {
+  match decode(encode(nci)[:]) {
     Some((g, _)) => assert_eq(g, nci)
     None => fail("expected NEW_CONNECTION_ID")
   }
   let rci : Frame = RetireConnectionId(3UL)
   assert_eq(qv_hex(encode(rci)), "1903")
-  match parse(qv_hexb("1903")[:]) {
+  match decode(qv_hexb("1903")[:]) {
     Some((g, _)) => assert_eq(g, rci)
     None => fail("expected RETIRE_CONNECTION_ID")
   }
   let pc : Frame = PathChallenge(qv_hexb("0011223344556677"))
   assert_eq(qv_hex(encode(pc)), "1a0011223344556677")
-  match parse(qv_hexb("1a0011223344556677")[:]) {
+  match decode(qv_hexb("1a0011223344556677")[:]) {
     Some((g, n)) => {
       assert_eq(g, pc)
       assert_eq(n, 9)
@@ -293,7 +293,7 @@ test "connection-management and path frames round-trip (RFC 9000 §19.7/§19.15-
   }
   let pr : Frame = PathResponse(qv_hexb("8899aabbccddeeff"))
   assert_eq(qv_hex(encode(pr)), "1b8899aabbccddeeff")
-  match parse(qv_hexb("1b8899aabbccddeeff")[:]) {
+  match decode(qv_hexb("1b8899aabbccddeeff")[:]) {
     Some((g, _)) => assert_eq(g, pr)
     None => fail("expected PATH_RESPONSE")
   }
@@ -312,7 +312,7 @@ test "ACK_ECN encodes and parses per RFC 9000 §19.3.2" {
     ce=1UL,
   )
   assert_eq(qv_hex(encode(f)), "0340e9170102010340420601")
-  match parse(encode(f)[:]) {
+  match decode(encode(f)[:]) {
     Some((g, n)) => {
       assert_eq(g, f)
       assert_eq(n, encode(f).length())
@@ -344,13 +344,13 @@ test "ACK_ECN acknowledges the same packets an ACK does, and elicits no ACK itse
 ///|
 test "a truncated ACK_ECN parses to None" {
   // The ACK body is complete but only two of the three ECN counts follow.
-  assert_eq(parse(qv_hexb("0340e91701020103404206")[:]) is None, true)
+  assert_eq(decode(qv_hexb("0340e91701020103404206")[:]) is None, true)
 }
 
 ///|
 test "a truncated PATH_CHALLENGE parses to None" {
   // Declares the frame but supplies only 4 of the 8 data bytes.
-  assert_eq(parse(qv_hexb("1a00112233")[:]) is None, true)
+  assert_eq(decode(qv_hexb("1a00112233")[:]) is None, true)
 }
 
 // QUIC ACK generation (RFC 9000 §19.3): building the Largest / First Range / (Gap,
@@ -403,7 +403,7 @@ test "ack: fields survive the ACK frame codec (encode then parse)" {
     fail("fields should be Some for this ack set")
   }
   let frame : Frame = Ack(largest~, delay=42, first_range~, ranges=pairs)
-  match parse(encode(frame)[:]) {
+  match decode(encode(frame)[:]) {
     Some((decoded, _)) => assert_eq(decoded, frame)
     None => abort("expected a parsable ACK frame")
   }

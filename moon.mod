@@ -1,6 +1,6 @@
 name = "moonbitstack/moonquic"
 
-version = "0.1.1"
+version = "0.2.0"
 
 readme = "README.md"
 
@@ -15,6 +15,6 @@ description = "moonquic — the QUIC transport for MoonBit (RFC 9000/9001/9002):
 preferred_target = "wasm-gc"
 
 import {
-  "moonbitstack/moontls@0.5.0",
+  "moonbitstack/moontls@0.6.0",
   "moonbitstack/mooncrypt@0.3.0",
 }

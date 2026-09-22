@@ -26,7 +26,7 @@ fn run() -> Unit raise {
   ]
   for f in frames {
     let enc = @frame.encode(f)
-    let ok = match @frame.parse(enc[:]) {
+    let ok = match @frame.decode(enc[:]) {
       Some((g, _)) => g == f
       None => false
     }

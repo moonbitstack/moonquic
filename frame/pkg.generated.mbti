@@ -6,11 +6,11 @@ import {
 }
 
 // Values
+pub fn decode(BytesView) -> (Frame, Int)?
+
 pub fn elicits_ack(Frame) -> Bool
 
 pub fn encode(Frame) -> Bytes
-
-pub fn parse(BytesView) -> (Frame, Int)?
 
 // Errors
 pub(all) suberror Refused {

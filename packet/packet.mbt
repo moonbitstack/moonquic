@@ -597,7 +597,7 @@ pub fn read_payload(payload : Bytes) -> Array[@frame.Frame] raise Refused {
   let view = payload[:]
   let mut off = 0
   while off < view.length() {
-    match @frame.parse(view[off:]) {
+    match @frame.decode(view[off:]) {
       Some((frame, consumed)) => {
         if consumed <= 0 {
           raise Malformed("frame consumed no bytes")
