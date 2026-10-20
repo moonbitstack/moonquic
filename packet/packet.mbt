@@ -24,15 +24,15 @@ pub(all) enum Kind {
 /// IDs.
 pub(all) struct Long {
   packet_type : Kind
-  type_specific : Int
-  version : UInt
+  type_specific : Int32
+  version : UInt32
   dcid : Bytes
   scid : Bytes
 } derive(Eq, Debug)
 
 ///|
 /// The first byte's 2-bit type code for a packet type.
-fn code_of(t : Kind) -> Int {
+fn code_of(t : Kind) -> Int32 {
   match t {
     Initial => 0
     ZeroRtt => 1
@@ -61,7 +61,7 @@ pub fn encode_long(h : Long) -> Bytes {
 /// Parse a long header at the start of `b`, returning it and the number of bytes it
 /// occupied, or `None` if the first byte is not a long header or `b` is truncated
 /// before the header ends.
-pub fn read_long(b : BytesView) -> (Long, Int)? {
+pub fn read_long(b : BytesView) -> (Long, Int32)? {
   if b.length() < 5 {
     return None
   }
@@ -126,7 +126,7 @@ pub extend Kind with Eq::{not_equal, equal}
 pub(all) struct Tail {
   token : Bytes
   length : UInt64
-  at : Int
+  at : Int32
 } derive(Eq, Debug)
 
 ///|
@@ -143,8 +143,8 @@ pub(all) struct Tail {
 pub fn Long::header(
   self : Long,
   number : BytesView,
-  payload~ : Int,
-  token? : Bytes = b"",
+  payload~ : Int32,
+  token~ : Bytes = b"",
 ) -> Bytes {
   let h = self
   let first = 0xc0 |
@@ -171,7 +171,7 @@ pub fn Long::header(
 ///
 /// `None` when the packet is truncated inside the token or the length field, or when
 /// `h` is a Retry — a Retry has no Length and no packet number, so `read_retry` reads it.
-pub fn read_tail(h : Long, b : BytesView, at : Int) -> Tail? {
+pub fn read_tail(h : Long, b : BytesView, at : Int32) -> Tail? {
   if h.packet_type is Retry {
     return None
   }
@@ -237,8 +237,8 @@ pub fn read_retry(b : BytesView) -> (Long, Bytes, Bytes)? {
 pub fn versions(
   dcid~ : Bytes,
   scid~ : Bytes,
-  offered : ArrayView[UInt],
-  first? : Int = 0x80,
+  offered : ArrayView[UInt32],
+  first~ : Int32 = 0x80,
 ) -> Bytes {
   let buf = Buffer()
   buf.write_byte((first | 0x80).to_byte())
@@ -261,7 +261,7 @@ pub fn versions(
 ///
 /// `None` unless the version field is zero, which is what marks the packet, and unless
 /// the version list is a whole number of four-byte versions.
-pub fn read_versions(b : BytesView) -> (Bytes, Bytes, Array[UInt])? {
+pub fn read_versions(b : BytesView) -> (Bytes, Bytes, Array[UInt32])? {
   guard read_long(b) is Some((h, at)) else { return None }
   if h.version != 0 {
     return None
@@ -270,7 +270,7 @@ pub fn read_versions(b : BytesView) -> (Bytes, Bytes, Array[UInt])? {
   if rest < 0 || rest % 4 != 0 {
     return None
   }
-  let offered : Array[UInt] = []
+  let offered : Array[UInt32] = []
   for i = at; i < b.length(); i = i + 4 {
     guard @fixed.read_u32(b, at=i) is Some(v) else { break }
     offered.push(v)
@@ -292,7 +292,7 @@ pub extend Tail with Eq::{not_equal, equal}
 
 ///|
 /// The number of significant bits in `n` (`n > 0`).
-fn bit_length(n : Int64) -> Int {
+fn bit_length(n : Int64) -> Int32 {
   let mut c = 0
   let mut x = n
   while x > 0L {
@@ -307,7 +307,7 @@ fn bit_length(n : Int64) -> Int {
 /// number the peer has acknowledged (RFC 9000 §17.1 / A.2): enough bytes to cover
 /// twice the number of unacknowledged packets, so wraparound is unambiguous. With
 /// no acknowledgement yet, the count is `full_pn + 1`.
-pub fn number_size(full_pn : Int64, largest_acked : Int64?) -> Int {
+pub fn number_size(full_pn : Int64, largest_acked : Int64?) -> Int32 {
   let num_unacked = match largest_acked {
     Some(la) => full_pn - la
     None => full_pn + 1L
@@ -330,7 +330,7 @@ pub fn number_size(full_pn : Int64, largest_acked : Int64?) -> Int {
 /// `size` writes that many bytes instead. A sender that has already decided how long
 /// its packet numbers are — a handshake that fixes four, a test with a vector to
 /// match — says so rather than having the length inferred back.
-pub fn number(full_pn : Int64, largest_acked : Int64?, size? : Int) -> Bytes {
+pub fn number(full_pn : Int64, largest_acked : Int64?, size? : Int32) -> Bytes {
   let nb = match size {
     Some(n) => n
     None => number_size(full_pn, largest_acked)
@@ -350,7 +350,7 @@ pub fn number(full_pn : Int64, largest_acked : Int64?, size? : Int) -> Bytes {
 pub fn read_number(
   largest_pn : Int64,
   truncated_pn : Int64,
-  pn_nbits : Int,
+  pn_nbits : Int32,
 ) -> Int64 {
   let expected = largest_pn + 1L
   let pn_win = 1L << pn_nbits
@@ -475,7 +475,7 @@ pub fn Space::build_ack(self : Space, ack_delay : UInt64) -> @frame.Frame? {
 pub(all) struct Short {
   spin : Bool
   key_phase : Bool
-  pn_length : Int
+  pn_length : Int32
   dcid : Bytes
 } derive(Eq, Debug)
 
@@ -500,7 +500,7 @@ pub fn encode_short(h : Short) -> Bytes {
 /// connection ID this endpoint issued. Returns the header and the bytes consumed
 /// (first byte plus the connection ID), or `None` if the first byte is a long
 /// header or `b` is shorter than that.
-pub fn read_short(b : BytesView, dcid_len : Int) -> (Short, Int)? {
+pub fn read_short(b : BytesView, dcid_len : Int32) -> (Short, Int32)? {
   if b.length() < 1 + dcid_len {
     return None
   }
@@ -610,7 +610,7 @@ pub fn payload_elicits_ack(frames : Array[@frame.Frame]) -> Bool {
 /// Pad `payload` out to at least `min_size` bytes with PADDING frames (zero octets); a
 /// payload already that long is returned unchanged (RFC 9000 §14.1 — an Initial packet's
 /// payload is padded so the datagram reaches the 1200-byte minimum).
-pub fn pad(payload : Bytes, min_size : Int) -> Bytes {
+pub fn pad(payload : Bytes, min_size : Int32) -> Bytes {
   if payload.length() >= min_size {
     return payload
   }

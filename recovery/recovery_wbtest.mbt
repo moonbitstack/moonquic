@@ -326,8 +326,8 @@ struct Counting {
   mut sent : Int64
   mut acked : Int64
   mut lost : Int64
-  mut congestion : Int
-  mut persistent : Int
+  mut congestion : Int32
+  mut persistent : Int32
 }
 
 ///|

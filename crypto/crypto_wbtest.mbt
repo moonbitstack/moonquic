@@ -20,7 +20,7 @@ fn qc_hexb(h : String) -> Bytes {
 }
 
 ///|
-fn qc_nibble(c : Int) -> Int {
+fn qc_nibble(c : Int32) -> Int32 {
   if c >= 0x30 && c <= 0x39 {
     c - 0x30
   } else if c >= 0x61 && c <= 0x66 {

@@ -88,7 +88,7 @@ pub struct State {
   flight : Flight
   control : &Control
   policy : Policy
-  mut pto_count : Int
+  mut pto_count : Int32
   mut last_sent : Int64
 }
 pub fn State::can_send(Self, Int64) -> Bool
@@ -99,7 +99,7 @@ pub fn State::on_pto(Self) -> Unit
 pub fn State::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
 pub fn State::outstanding(Self) -> Array[Int64]
 pub fn State::pto(Self) -> Int64
-pub fn State::pto_count(Self) -> Int
+pub fn State::pto_count(Self) -> Int32
 pub fn State::pto_deadline(Self) -> Int64?
 pub fn State::rtt(Self) -> Rtt
 pub fn State::window(Self) -> Int64

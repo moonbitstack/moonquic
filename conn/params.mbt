@@ -213,19 +213,19 @@ pub let limits : Limits = {
 ///|
 /// Limits by name, each defaulting to RFC 9000 §18.2's.
 pub fn Limits::new(
-  idle_timeout? : UInt64 = 0,
-  udp_payload? : UInt64 = 65527,
-  data? : UInt64 = 0,
-  stream_data_bidi_local? : UInt64 = 0,
-  stream_data_bidi_remote? : UInt64 = 0,
-  stream_data_uni? : UInt64 = 0,
-  streams_bidi? : UInt64 = 0,
-  streams_uni? : UInt64 = 0,
-  ack_delay_exponent? : UInt64 = 3,
-  max_ack_delay? : UInt64 = 25,
-  active_connection_ids? : UInt64 = 2,
-  migration? : Bool = true,
-  datagram_frame? : UInt64 = 0,
+  idle_timeout~ : UInt64 = 0,
+  udp_payload~ : UInt64 = 65527,
+  data~ : UInt64 = 0,
+  stream_data_bidi_local~ : UInt64 = 0,
+  stream_data_bidi_remote~ : UInt64 = 0,
+  stream_data_uni~ : UInt64 = 0,
+  streams_bidi~ : UInt64 = 0,
+  streams_uni~ : UInt64 = 0,
+  ack_delay_exponent~ : UInt64 = 3,
+  max_ack_delay~ : UInt64 = 25,
+  active_connection_ids~ : UInt64 = 2,
+  migration~ : Bool = true,
+  datagram_frame~ : UInt64 = 0,
 ) -> Limits {
   {
     idle_timeout,
@@ -252,7 +252,7 @@ pub fn Limits::new(
 /// connection's call, not this reader's.
 pub fn Limits::read(
   params : ArrayView[Param],
-  base? : Limits = limits,
+  base~ : Limits = limits,
 ) -> Limits {
   let mut out = base
   for p in params {

@@ -13,10 +13,10 @@
 /// `@spec.Aead` implementation away and needs no change here.
 pub(all) struct Suite {
   digest : @keys.Digest
-  key : Int
-  iv : Int
-  hp : Int
-  tag : Int
+  key : Int32
+  iv : Int32
+  hp : Int32
+  tag : Int32
   aead : (Bytes) -> &@spec.Aead
   mask : (Bytes, BytesView) -> Bytes
 }
@@ -36,13 +36,13 @@ pub let suite : Suite = {
 ///|
 /// A suite by name, each part defaulting to the AES-128-GCM preset.
 pub fn Suite::new(
-  digest? : @keys.Digest = Sha256,
-  key? : Int = 16,
-  iv? : Int = 12,
-  hp? : Int = 16,
-  tag? : Int = 16,
-  aead? : (Bytes) -> &@spec.Aead = aes_gcm,
-  mask? : (Bytes, BytesView) -> Bytes = aes_mask,
+  digest~ : @keys.Digest = Sha256,
+  key~ : Int32 = 16,
+  iv~ : Int32 = 12,
+  hp~ : Int32 = 16,
+  tag~ : Int32 = 16,
+  aead~ : (Bytes) -> &@spec.Aead = aes_gcm,
+  mask~ : (Bytes, BytesView) -> Bytes = aes_mask,
 ) -> Suite {
   { digest, key, iv, hp, tag, aead, mask, }
 }
@@ -51,7 +51,7 @@ pub fn Suite::new(
 /// How many bytes of ciphertext a header-protection mask is sampled from (RFC 9001
 /// §5.4.2). Every AEAD QUIC defines samples sixteen, so this is the protocol's number
 /// rather than a suite's.
-pub let sample : Int = 16
+pub let sample : Int32 = 16
 
 ///|
 /// AES-GCM over a key of the length the caller passes: AES-128 for sixteen bytes,
@@ -111,13 +111,13 @@ pub let version : Version = {
 ///|
 /// A version's constants by name, each defaulting to version 1's.
 pub fn Version::new(
-  salt? : Bytes = version.salt,
-  key? : Bytes = version.key,
-  iv? : Bytes = version.iv,
-  hp? : Bytes = version.hp,
-  ku? : Bytes = version.ku,
-  retry? : Bytes = version.retry,
-  nonce? : Bytes = version.nonce,
+  salt~ : Bytes = version.salt,
+  key~ : Bytes = version.key,
+  iv~ : Bytes = version.iv,
+  hp~ : Bytes = version.hp,
+  ku~ : Bytes = version.ku,
+  retry~ : Bytes = version.retry,
+  nonce~ : Bytes = version.nonce,
 ) -> Version {
   { salt, key, iv, hp, ku, retry, nonce, }
 }
@@ -136,10 +136,10 @@ pub(all) struct Keys {
 /// version fixes and at the lengths the suite fixes.
 pub fn Keys::of(
   secret : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Keys {
-  let expand = (label : Bytes, len : Int) => {
+  let expand = (label : Bytes, len : Int32) => {
     @keys.expand_label(secret, label[:], b""[:], len~, digest=suite.digest)
   }
   {
@@ -154,8 +154,8 @@ pub fn Keys::of(
 /// Destination Connection ID from the client's first packet (RFC 9001 §5.2).
 pub fn secret(
   dcid : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Bytes {
   @keys.extract(version.salt[:], dcid, digest=suite.digest)
 }
@@ -168,8 +168,8 @@ pub fn secret(
 /// protected against off-path observers rather than against anybody at all.
 pub fn initial(
   dcid : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> (Keys, Keys) {
   let shared = secret(dcid, suite~, version~)
   let side = (label : Bytes) => {
@@ -194,8 +194,8 @@ pub fn handshake(
   handshake_secret : BytesView,
   transcript : BytesView,
   client~ : Bool,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Keys {
   let secret = if client {
     @keys.client_handshake(handshake_secret, transcript, digest=suite.digest)
@@ -212,8 +212,8 @@ pub fn application(
   master : BytesView,
   transcript : BytesView,
   client~ : Bool,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Keys {
   let secret = if client {
     @keys.client_application(master, transcript, digest=suite.digest)
@@ -229,8 +229,8 @@ pub fn application(
 /// generation protects a packet.
 pub fn update(
   secret : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Bytes {
   @keys.expand_label(
     secret,
@@ -246,8 +246,8 @@ pub fn update(
 /// to, which is what an endpoint installs when it flips the Key Phase bit.
 pub fn next(
   secret : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> (Bytes, Keys) {
   let rolled = update(secret, suite~, version~)
   (rolled, Keys::of(rolled[:], suite~, version~))
@@ -273,7 +273,7 @@ pub fn Keys::nonce(self : Keys, number : Int64) -> Bytes {
 pub fn Keys::mask(
   self : Keys,
   sample : BytesView,
-  suite? : Suite = suite,
+  suite~ : Suite = suite,
 ) -> Bytes {
   (suite.mask)(self.hp, sample)
 }
@@ -283,7 +283,7 @@ pub fn Keys::mask(
 /// five of a short one (RFC 9001 §5.4.1). The header form is bit 0x80 and is never
 /// itself protected, which is what lets a receiver tell the two apart before it has any
 /// keys at all.
-fn masked(first : Int) -> Int {
+fn masked(first : Int32) -> Int32 {
   if (first & 0x80) != 0 {
     0x0f
   } else {
@@ -301,9 +301,9 @@ fn masked(first : Int) -> Int {
 pub fn Keys::protect(
   self : Keys,
   packet : BytesView,
-  at~ : Int,
-  size~ : Int,
-  suite? : Suite = suite,
+  at~ : Int32,
+  size~ : Int32,
+  suite~ : Suite = suite,
 ) -> Bytes {
   let mask = self.mask(packet[at + 4:at + 4 + sample], suite~)
   let out = bytes(packet)
@@ -321,9 +321,9 @@ pub fn Keys::protect(
 pub fn Keys::unprotect(
   self : Keys,
   packet : BytesView,
-  at~ : Int,
-  suite? : Suite = suite,
-) -> (Bytes, Int) {
+  at~ : Int32,
+  suite~ : Suite = suite,
+) -> (Bytes, Int32) {
   let mask = self.mask(packet[at + 4:at + 4 + sample], suite~)
   let first = packet[0].to_int() ^
     (mask[0].to_int() & masked(packet[0].to_int()))
@@ -348,7 +348,7 @@ pub fn Keys::seal(
   header : BytesView,
   payload : BytesView,
   number~ : Int64,
-  suite? : Suite = suite,
+  suite~ : Suite = suite,
 ) -> Bytes {
   let size = (header[0].to_int() & 0x03) + 1
   let body = (suite.aead)(self.key).seal(
@@ -382,8 +382,8 @@ pub fn Keys::open(
   self : Keys,
   packet : BytesView,
   largest~ : Int64,
-  at? : Int,
-  suite? : Suite = suite,
+  at? : Int32,
+  suite~ : Suite = suite,
 ) -> (Bytes, Int64)? {
   let long = packet.length() > 0 && (packet[0].to_int() & 0x80) != 0
   let tail = if long { @packet.read_header(packet) } else { None }
@@ -433,8 +433,8 @@ pub fn Keys::open(
 pub fn retry_tag(
   body : BytesView,
   odcid : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Bytes {
   let pseudo = Buffer()
   pseudo.write_byte(odcid.length().to_byte())
@@ -455,8 +455,8 @@ pub fn retry_tag(
 pub fn retry_ok(
   packet : BytesView,
   odcid : BytesView,
-  suite? : Suite = suite,
-  version? : Version = version,
+  suite~ : Suite = suite,
+  version~ : Version = version,
 ) -> Bool {
   if packet.length() < suite.tag {
     return false
@@ -475,7 +475,7 @@ pub fn retry_ok(
 
 ///|
 /// A view as mutable bytes, since protection XORs a few of them in place.
-fn bytes(b : BytesView) -> Array[Int] {
+fn bytes(b : BytesView) -> Array[Int32] {
   let out = Array::make(b.length(), 0)
   for i = 0; i < b.length(); i = i + 1 {
     out[i] = b[i].to_int()
@@ -484,7 +484,7 @@ fn bytes(b : BytesView) -> Array[Int] {
 }
 
 ///|
-fn pack(out : Array[Int]) -> Bytes {
+fn pack(out : Array[Int32]) -> Bytes {
   let buf = Buffer()
   for v in out {
     buf.write_byte(v.to_byte())

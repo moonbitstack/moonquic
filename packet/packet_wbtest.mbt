@@ -15,7 +15,7 @@ fn qv_hexb(h : String) -> Bytes {
 }
 
 ///|
-fn qv_nibble(c : Int) -> Int {
+fn qv_nibble(c : Int32) -> Int32 {
   if c >= 0x30 && c <= 0x39 {
     c - 0x30
   } else if c >= 0x61 && c <= 0x66 {
@@ -465,7 +465,7 @@ test "a Retry shorter than its tag, and a packet that is not one, read as None" 
 test "Version Negotiation round-trips, and its first byte is the caller's" {
   let dcid = qv_hexb("0011223344556677")
   let scid = qv_hexb("8899")
-  let offered : Array[UInt] = [1U, 0x6b3343cfU, 0xff00001dU]
+  let offered : Array[UInt32] = [1U, 0x6b3343cfU, 0xff00001dU]
   let packet = versions(dcid~, scid~, offered[:])
   // Version zero is what marks the packet (RFC 9000 §17.2.1).
   assert_eq(qv_hex(packet[1:5].to_owned()), "00000000")

@@ -14,7 +14,7 @@ fn qv_hexb(h : String) -> Bytes {
 }
 
 ///|
-fn qv_nibble(c : Int) -> Int {
+fn qv_nibble(c : Int32) -> Int32 {
   if c >= 0x30 && c <= 0x39 {
     c - 0x30
   } else if c >= 0x61 && c <= 0x66 {
@@ -40,7 +40,7 @@ fn qv_hex(b : Bytes) -> String {
 
 ///|
 /// Where the packet number starts in a received Initial packet.
-fn pn_offset(packet : Bytes) -> Int raise @packet.Refused {
+fn pn_offset(packet : Bytes) -> Int32 raise @packet.Refused {
   guard @packet.read_header(packet[:]) is Some((_, tail)) else {
     raise @packet.Malformed("the Initial packet's header does not parse")
   }
@@ -699,7 +699,7 @@ fn qs_initial(
   scid : Bytes,
   pn : Int64,
   frames : Array[@frame.Frame],
-  fill? : Bool = true,
+  fill~ : Bool = true,
 ) -> Bytes {
   let keys = client_initial_keys(dcid)
   let payload = @packet.payload(frames)
@@ -720,7 +720,7 @@ fn[A] qs_conn(server : Endpoint[A], cid : Bytes) -> Session[A] {
 }
 
 ///|
-fn[A] qs_next(server : Endpoint[A], now? : Int64 = 0L) -> Bytes raise {
+fn[A] qs_next(server : Endpoint[A], now~ : Int64 = 0L) -> Bytes raise {
   match server.poll_out(now) {
     Some((datagram, _)) => datagram
     None => abort("the server had no datagram ready")
@@ -729,7 +729,7 @@ fn[A] qs_next(server : Endpoint[A], now? : Int64 = 0L) -> Bytes raise {
 
 ///|
 /// Everything the server will send at `now`, as `(datagrams, bytes)`.
-fn[A] qs_drain(server : Endpoint[A], now? : Int64 = 0L) -> (Int, Int) raise {
+fn[A] qs_drain(server : Endpoint[A], now~ : Int64 = 0L) -> (Int32, Int32) raise {
   let mut count = 0
   let mut bytes = 0
   for ;; {
@@ -748,7 +748,7 @@ fn[A] qs_drain(server : Endpoint[A], now? : Int64 = 0L) -> (Int, Int) raise {
 /// The packet number a protected 1-RTT packet carries.
 fn qs_short_pn(
   packet : Bytes,
-  dcid_len : Int,
+  dcid_len : Int32,
   keys : @crypto.Keys,
 ) -> Int64 raise {
   match recv_short(packet, dcid_len, keys) {

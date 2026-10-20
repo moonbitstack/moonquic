@@ -24,7 +24,7 @@ pub fn retry_ok(BytesView, BytesView, suite? : Suite, version? : Version) -> Boo
 
 pub fn retry_tag(BytesView, BytesView, suite? : Suite, version? : Version) -> Bytes
 
-pub let sample : Int
+pub let sample : Int32
 
 pub fn secret(BytesView, suite? : Suite, version? : Version) -> Bytes
 
@@ -47,22 +47,22 @@ pub fn Keys::mask(Self, BytesView, suite? : Suite) -> Bytes
 pub fn Keys::nonce(Self, Int64) -> Bytes
 pub fn Keys::not_equal(Self, Self) -> Bool
 pub fn Keys::of(BytesView, suite? : Suite, version? : Version) -> Self
-pub fn Keys::open(Self, BytesView, largest~ : Int64, at? : Int, suite? : Suite) -> (Bytes, Int64)?
-pub fn Keys::protect(Self, BytesView, at~ : Int, size~ : Int, suite? : Suite) -> Bytes
+pub fn Keys::open(Self, BytesView, largest~ : Int64, at? : Int32, suite? : Suite) -> (Bytes, Int64)?
+pub fn Keys::protect(Self, BytesView, at~ : Int32, size~ : Int32, suite? : Suite) -> Bytes
 pub fn Keys::seal(Self, BytesView, BytesView, number~ : Int64, suite? : Suite) -> Bytes
 pub fn Keys::to_repr(Self) -> @debug.Repr
-pub fn Keys::unprotect(Self, BytesView, at~ : Int, suite? : Suite) -> (Bytes, Int)
+pub fn Keys::unprotect(Self, BytesView, at~ : Int32, suite? : Suite) -> (Bytes, Int32)
 
 pub(all) struct Suite {
   digest : @keys.Digest
-  key : Int
-  iv : Int
-  hp : Int
-  tag : Int
+  key : Int32
+  iv : Int32
+  hp : Int32
+  tag : Int32
   aead : (Bytes) -> &@spec.Aead
   mask : (Bytes, BytesView) -> Bytes
 }
-pub fn Suite::new(digest? : @keys.Digest, key? : Int, iv? : Int, hp? : Int, tag? : Int, aead? : (Bytes) -> &@spec.Aead, mask? : (Bytes, BytesView) -> Bytes) -> Self
+pub fn Suite::new(digest? : @keys.Digest, key? : Int32, iv? : Int32, hp? : Int32, tag? : Int32, aead? : (Bytes) -> &@spec.Aead, mask? : (Bytes, BytesView) -> Bytes) -> Self
 
 pub(all) struct Version {
   salt : Bytes

@@ -30,27 +30,27 @@ pub fn idle_timeout(Int64, Int64) -> Int64
 
 pub let limits : Limits
 
-pub let min_datagram : Int
+pub let min_datagram : Int32
 
 pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
 
 pub fn recv_long(Bytes, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn recv_short(Bytes, Int, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_short(Bytes, Int32, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn seal_long(@packet.Kind, UInt, Bytes, Bytes, Int64, Int, Bytes, @crypto.Keys, token? : Bytes) -> Bytes
+pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes) -> Bytes
 
-pub fn send_long(@packet.Kind, UInt, Bytes, Bytes, Int64, Int, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
+pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
 
-pub fn send_short(Bytes, Int64, Int, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
+pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
 
-pub fn signed(&@spec.Signer, scheme? : Int) -> (Bytes) -> Bytes
+pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 
 // Errors
 
 // Types and methods
 pub(all) struct Config {
-  version : UInt
+  version : UInt32
   idle_timeout : Int64
   close_period : Int64
   max_datagram : Int64
@@ -88,7 +88,7 @@ pub struct Endpoint[A] {
 pub fn[A] Endpoint::close(Self[A], Bytes, UInt64, Bytes, Int64) -> Unit
 pub fn[A] Endpoint::conn(Self[A], Bytes) -> Session[A]?
 pub fn[A] Endpoint::conn_ids(Self[A]) -> Array[Bytes]
-pub fn[A] Endpoint::count(Self[A]) -> Int
+pub fn[A] Endpoint::count(Self[A]) -> Int32
 pub fn[A] Endpoint::new(Config) -> Self[A]
 pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
 pub fn[A] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
@@ -221,7 +221,7 @@ pub struct Session[A] {
   received : Array[(Level, @frame.Frame)]
   mut rx : Int64
   mut tx : Int64
-  mut packets : Int
+  mut packets : Int32
   mut validated : Bool
   mut last_rx : Int64
   mut idle_timeout : Int64
@@ -236,7 +236,7 @@ pub struct Session[A] {
   mut app_tx : @crypto.Keys?
 }
 pub fn[A] Session::apply_peer_params(Self[A], Array[Param]) -> Unit
-pub fn[A] Session::can_send(Self[A], Int) -> Bool
+pub fn[A] Session::can_send(Self[A], Int32) -> Bool
 pub fn[A] Session::cid(Self[A]) -> Bytes
 pub fn[A] Session::close(Self[A], UInt64, Bytes, Int64) -> Unit
 pub fn[A] Session::core(Self[A]) -> Server
@@ -244,9 +244,9 @@ pub fn[A] Session::idle_timeout(Self[A]) -> Int64
 pub fn[A] Session::install_app_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
-pub fn[A] Session::packets_received(Self[A]) -> Int
+pub fn[A] Session::packets_received(Self[A]) -> Int32
 pub fn[A] Session::peer(Self[A]) -> A
-pub fn[A] Session::pending(Self[A]) -> Int
+pub fn[A] Session::pending(Self[A]) -> Int32
 pub fn[A] Session::phase(Self[A]) -> Phase
 pub fn[A] Session::queue_stream(Self[A], UInt64, Bytes) -> Unit
 pub fn[A] Session::rx_bytes(Self[A]) -> Int64

@@ -285,7 +285,7 @@ pub struct Window {
 
 ///|
 /// A receive window of `size` bytes, which is also the initial advertised limit.
-pub fn Window::new(size : UInt64, ratio? : Double = ratio) -> Window {
+pub fn Window::new(size : UInt64, ratio~ : Double = ratio) -> Window {
   { received: 0, consumed: 0, limit: size, size, ratio, }
 }
 
@@ -489,7 +489,7 @@ pub struct Assembler {
 
 ///|
 /// A fresh assembler at the start of a stream.
-pub fn Assembler::new(limit? : UInt64 = limit) -> Assembler {
+pub fn Assembler::new(limit~ : UInt64 = limit) -> Assembler {
   { consumed: 0, runs: [], final_size: None, limit, }
 }
 
@@ -779,7 +779,7 @@ fn Streams::take(self : Streams, s : Incoming, n : UInt64) -> Unit {
 
 ///|
 /// How many streams are being tracked.
-pub fn Streams::count(self : Streams) -> Int {
+pub fn Streams::count(self : Streams) -> Int32 {
   self.streams.length()
 }
 
@@ -846,13 +846,13 @@ pub struct Scheduler {
   budget : Budget
   streams : Map[UInt64, Out]
   order : Array[UInt64]
-  mut cursor : Int
+  mut cursor : Int32
   frame : UInt64
 }
 
 ///|
 /// A scheduler over `budget`, with frames capped at `frame` bytes.
-pub fn Scheduler::new(budget : Budget, frame? : UInt64 = frame) -> Scheduler {
+pub fn Scheduler::new(budget : Budget, frame~ : UInt64 = frame) -> Scheduler {
   { budget, streams: Map([]), order: [], cursor: 0, frame, }
 }
 

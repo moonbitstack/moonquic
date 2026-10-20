@@ -6,7 +6,7 @@ import {
 }
 
 // Values
-pub fn decode(BytesView) -> (Frame, Int)?
+pub fn decode(BytesView) -> (Frame, Int32)?
 
 pub fn elicits_ack(Frame) -> Bool
 
@@ -24,7 +24,7 @@ pub impl Show for Refused
 
 // Types and methods
 pub(all) enum Frame {
-  Padding(Int)
+  Padding(Int32)
   Ping
   Crypto(offset~ : UInt64, data~ : Bytes)
   Stream(id~ : UInt64, offset~ : UInt64, fin~ : Bool, data~ : Bytes)

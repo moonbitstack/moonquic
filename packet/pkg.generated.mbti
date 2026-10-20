@@ -11,11 +11,11 @@ pub fn encode_long(Long) -> Bytes
 
 pub fn encode_short(Short) -> Bytes
 
-pub fn number(Int64, Int64?, size? : Int) -> Bytes
+pub fn number(Int64, Int64?, size? : Int32) -> Bytes
 
-pub fn number_size(Int64, Int64?) -> Int
+pub fn number_size(Int64, Int64?) -> Int32
 
-pub fn pad(Bytes, Int) -> Bytes
+pub fn pad(Bytes, Int32) -> Bytes
 
 pub fn payload(Array[@frame.Frame]) -> Bytes
 
@@ -23,23 +23,23 @@ pub fn payload_elicits_ack(Array[@frame.Frame]) -> Bool
 
 pub fn read_header(BytesView) -> (Long, Tail)?
 
-pub fn read_long(BytesView) -> (Long, Int)?
+pub fn read_long(BytesView) -> (Long, Int32)?
 
-pub fn read_number(Int64, Int64, Int) -> Int64
+pub fn read_number(Int64, Int64, Int32) -> Int64
 
 pub fn read_payload(Bytes) -> Array[@frame.Frame] raise Refused
 
 pub fn read_retry(BytesView) -> (Long, Bytes, Bytes)?
 
-pub fn read_short(BytesView, Int) -> (Short, Int)?
+pub fn read_short(BytesView, Int32) -> (Short, Int32)?
 
-pub fn read_tail(Long, BytesView, Int) -> Tail?
+pub fn read_tail(Long, BytesView, Int32) -> Tail?
 
-pub fn read_versions(BytesView) -> (Bytes, Bytes, Array[UInt])?
+pub fn read_versions(BytesView) -> (Bytes, Bytes, Array[UInt32])?
 
 pub fn retry(Long, token~ : Bytes, tag~ : Bytes) -> Bytes
 
-pub fn versions(dcid~ : Bytes, scid~ : Bytes, ArrayView[UInt], first? : Int) -> Bytes
+pub fn versions(dcid~ : Bytes, scid~ : Bytes, ArrayView[UInt32], first? : Int32) -> Bytes
 
 // Errors
 pub(all) suberror Refused {
@@ -64,20 +64,20 @@ pub fn Kind::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Long {
   packet_type : Kind
-  type_specific : Int
-  version : UInt
+  type_specific : Int32
+  version : UInt32
   dcid : Bytes
   scid : Bytes
 } derive(Eq, @debug.Debug)
 pub fn Long::equal(Self, Self) -> Bool
-pub fn Long::header(Self, BytesView, payload~ : Int, token? : Bytes) -> Bytes
+pub fn Long::header(Self, BytesView, payload~ : Int32, token? : Bytes) -> Bytes
 pub fn Long::not_equal(Self, Self) -> Bool
 pub fn Long::to_repr(Self) -> @debug.Repr
 
 pub(all) struct Short {
   spin : Bool
   key_phase : Bool
-  pn_length : Int
+  pn_length : Int32
   dcid : Bytes
 } derive(Eq, @debug.Debug)
 pub fn Short::equal(Self, Self) -> Bool
@@ -103,7 +103,7 @@ pub fn Space::on_packet_received(Self, Int64, Bool) -> Unit
 pub(all) struct Tail {
   token : Bytes
   length : UInt64
-  at : Int
+  at : Int32
 } derive(Eq, @debug.Debug)
 pub fn Tail::equal(Self, Self) -> Bool
 pub fn Tail::not_equal(Self, Self) -> Bool

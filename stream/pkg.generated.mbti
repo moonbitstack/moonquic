@@ -154,7 +154,7 @@ pub struct Scheduler {
   budget : Budget
   streams : Map[UInt64, Out]
   order : Array[UInt64]
-  mut cursor : Int
+  mut cursor : Int32
   frame : UInt64
 }
 pub fn Scheduler::new(Budget, frame? : UInt64) -> Self
@@ -196,7 +196,7 @@ pub struct Streams {
   uni : Quota
   server : Bool
 }
-pub fn Streams::count(Self) -> Int
+pub fn Streams::count(Self) -> Int32
 pub fn Streams::max_data(Self) -> UInt64?
 pub fn Streams::max_stream_data(Self, UInt64) -> UInt64?
 pub fn Streams::new(UInt64, UInt64, server~ : Bool, bidi? : Quota, uni? : Quota) -> Self

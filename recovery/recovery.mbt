@@ -41,14 +41,14 @@ pub let policy : Policy = {
 /// `ack_delay` the peer's advertised `max_ack_delay`, both of which a real connection
 /// learns from its transport parameters rather than keeps at the default.
 pub fn Policy::new(
-  packets? : Int64 = 3,
-  time? : Double = 9.0 / 8.0,
-  granularity? : Int64 = 1_000,
-  initial_rtt? : Int64 = 333_000,
-  persistent? : Int64 = 3,
-  reduction? : Double = 0.5,
-  datagram? : Int64 = 1_200,
-  ack_delay? : Int64 = 25_000,
+  packets~ : Int64 = 3,
+  time~ : Double = 9.0 / 8.0,
+  granularity~ : Int64 = 1_000,
+  initial_rtt~ : Int64 = 333_000,
+  persistent~ : Int64 = 3,
+  reduction~ : Double = 0.5,
+  datagram~ : Int64 = 1_200,
+  ack_delay~ : Int64 = 25_000,
 ) -> Policy {
   {
     packets,
@@ -89,7 +89,7 @@ pub fn Rtt::sample(
   self : Rtt,
   latest : Int64,
   ack_delay~ : Int64,
-  policy? : Policy = policy,
+  policy~ : Policy = policy,
 ) -> Unit {
   self.latest = latest
   if self.sampled {
@@ -154,7 +154,7 @@ pub fn Rtt::sampled(self : Rtt) -> Bool {
 /// The Probe Timeout: `smoothed + max(4·variation, granularity) + ack_delay`
 /// (RFC 9002 §6.2.1), or twice the policy's initial RTT before the first sample
 /// (§6.2.2).
-pub fn Rtt::pto(self : Rtt, policy? : Policy = policy) -> Int64 {
+pub fn Rtt::pto(self : Rtt, policy~ : Policy = policy) -> Int64 {
   if !self.sampled {
     return 2L * policy.initial_rtt
   }
@@ -166,7 +166,7 @@ pub fn Rtt::pto(self : Rtt, policy? : Policy = policy) -> Int64 {
 ///|
 /// The loss time threshold: `max(time · max(smoothed, latest), granularity)`
 /// (RFC 9002 §6.1.2).
-pub fn Rtt::threshold(self : Rtt, policy? : Policy = policy) -> Int64 {
+pub fn Rtt::threshold(self : Rtt, policy~ : Policy = policy) -> Int64 {
   let m = if self.smoothed > self.latest { self.smoothed } else { self.latest }
   let scaled = (m.to_double() * policy.time).to_int64()
   if scaled > policy.granularity {
@@ -339,7 +339,7 @@ pub struct NewReno {
 /// A fresh controller (RFC 9002 §7.2): the initial window is
 /// `min(10·datagram, max(2·datagram, 14720))`, the slow-start threshold is unbounded, and
 /// nothing is in flight or in recovery.
-pub fn NewReno::new(policy? : Policy = policy) -> NewReno {
+pub fn NewReno::new(policy~ : Policy = policy) -> NewReno {
   let two = 2L * policy.datagram
   let ten = 10L * policy.datagram
   let floor = if two > 14_720L { two } else { 14_720L }
@@ -448,14 +448,14 @@ pub struct State {
   flight : Flight
   control : &Control
   policy : Policy
-  mut pto_count : Int
+  mut pto_count : Int32
   mut last_sent : Int64
 }
 
 ///|
 /// A fresh state. Leave `control` out for NewReno under the same policy; give one to use
 /// another controller.
-pub fn State::new(policy? : Policy = policy, control? : &Control) -> State {
+pub fn State::new(policy~ : Policy = policy, control? : &Control) -> State {
   {
     rtt: Rtt::new(),
     flight: Flight::new(),
@@ -589,7 +589,7 @@ pub fn State::pto(self : State) -> Int64 {
 ///|
 /// How many probe timeouts have fired without an acknowledgement since the last one that
 /// did — the backoff exponent.
-pub fn State::pto_count(self : State) -> Int {
+pub fn State::pto_count(self : State) -> Int32 {
   self.pto_count
 }
 
@@ -621,7 +621,7 @@ pub fn State::outstanding(self : State) -> Array[Int64] {
 ///|
 /// Two to the `n`, by doubling: the backoff multiplier is small and a shift on `Int64`
 /// would need `n` bounded anyway.
-fn exp2(n : Int) -> Int64 {
+fn exp2(n : Int32) -> Int64 {
   let mut r = 1L
   for _i = 0; _i < n; _i = _i + 1 {
     r = r * 2L

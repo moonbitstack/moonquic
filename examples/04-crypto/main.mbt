@@ -68,7 +68,7 @@ fn hexb(h : String) -> Bytes {
 }
 
 ///|
-fn nib(c : Int) -> Int {
+fn nib(c : Int32) -> Int32 {
   if c >= 0x30 && c <= 0x39 {
     c - 0x30
   } else if c >= 0x61 && c <= 0x66 {

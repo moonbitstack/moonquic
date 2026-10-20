@@ -15,7 +15,7 @@
 /// `Stream` carries application data on a stream, with a byte `offset` and a `fin`
 /// flag marking the end of the stream (RFC 9000 §19.8).
 pub(all) enum Frame {
-  Padding(Int)
+  Padding(Int32)
   Ping
   Crypto(offset~ : UInt64, data~ : Bytes)
   Stream(id~ : UInt64, offset~ : UInt64, fin~ : Bool, data~ : Bytes)
@@ -208,8 +208,8 @@ pub fn encode(f : Frame) -> Bytes {
 /// the offset just past it. ACK (0x02) ends there; ACK_ECN (0x03) reads its three counts on.
 fn read_ack(
   b : BytesView,
-  start : Int,
-) -> (UInt64, UInt64, UInt64, Array[(UInt64, UInt64)], Int)? {
+  start : Int32,
+) -> (UInt64, UInt64, UInt64, Array[(UInt64, UInt64)], Int32)? {
   let mut off = start
   guard @quic.decode(b[off:]) is Some((largest, l1)) else { return None }
   off = off + l1
@@ -234,7 +234,7 @@ fn read_ack(
 /// Read one frame at the start of `b`, returning it and the bytes it occupied, or
 /// `None` on a truncated frame or a type this brick does not yet decode. A PADDING
 /// frame absorbs the whole run of leading zero bytes.
-pub fn decode(b : BytesView) -> (Frame, Int)? {
+pub fn decode(b : BytesView) -> (Frame, Int32)? {
   guard @quic.decode(b) is Some((ftype, tlen)) else { return None }
   match ftype {
     0UL => {

@@ -604,7 +604,7 @@ pub(all) enum Phase {
 
 ///|
 /// The smallest a datagram carrying an ack-eliciting Initial packet may be (RFC 9000 §14.1).
-pub let min_datagram : Int = 1200
+pub let min_datagram : Int32 = 1200
 
 ///|
 /// The anti-amplification factor (RFC 9000 §8.1): until it has validated a peer's address, a
@@ -617,7 +617,7 @@ pub let amplification : Int64 = 3L
 /// size, timer tuning and flow-control credit the send loop starts from. Every duration is in
 /// microseconds, the unit the recovery code measures in.
 pub(all) struct Config {
-  version : UInt
+  version : UInt32
   idle_timeout : Int64
   close_period : Int64
   max_datagram : Int64
@@ -666,7 +666,7 @@ pub fn idle_timeout(ours : Int64, theirs : Int64) -> Int64 {
 /// Build a datagram from `payload`, padding the payload with PADDING frames until the built
 /// datagram reaches `min` bytes (RFC 9000 §14.1). The header's Length field is a varint, so
 /// growing the payload can grow the header too; re-measure rather than guess the overhead.
-fn pad(payload : Bytes, build : (Bytes) -> Bytes, min : Int) -> Bytes {
+fn pad(payload : Bytes, build : (Bytes) -> Bytes, min : Int32) -> Bytes {
   let mut body = payload
   let mut datagram = build(body)
   while datagram.length() < min {
@@ -692,7 +692,7 @@ pub struct Session[A] {
   received : Array[(Level, @frame.Frame)]
   mut rx : Int64
   mut tx : Int64
-  mut packets : Int
+  mut packets : Int32
   mut validated : Bool
   mut last_rx : Int64
   mut idle_timeout : Int64
@@ -791,7 +791,7 @@ pub fn[A] Session::tx_bytes(self : Session[A]) -> Int64 {
 
 ///|
 /// Datagrams received on this connection.
-pub fn[A] Session::packets_received(self : Session[A]) -> Int {
+pub fn[A] Session::packets_received(self : Session[A]) -> Int32 {
   self.packets
 }
 
@@ -811,7 +811,7 @@ pub fn[A] Session::idle_timeout(self : Session[A]) -> Int64 {
 ///|
 /// Datagrams built and waiting to go out — non-zero while the amplification limit or a closed
 /// congestion window is holding them back.
-pub fn[A] Session::pending(self : Session[A]) -> Int {
+pub fn[A] Session::pending(self : Session[A]) -> Int32 {
   self.out.length()
 }
 
@@ -825,7 +825,7 @@ pub fn[A] Session::largest_acked(self : Session[A], level : Level) -> Int64? {
 ///|
 /// Whether `n` more bytes may go to this peer: unrestricted once its address is validated,
 /// otherwise at most three times what it has sent this server (RFC 9000 §8.1).
-pub fn[A] Session::can_send(self : Session[A], n : Int) -> Bool {
+pub fn[A] Session::can_send(self : Session[A], n : Int32) -> Bool {
   self.validated || self.tx + n.to_int64() <= amplification * self.rx
 }
 
@@ -1186,7 +1186,7 @@ pub fn[A] Endpoint::new(cfg : Config) -> Endpoint[A] {
 
 ///|
 /// How many connections the server is holding.
-pub fn[A] Endpoint::count(self : Endpoint[A]) -> Int {
+pub fn[A] Endpoint::count(self : Endpoint[A]) -> Int32 {
   self.conns.length()
 }
 
@@ -1323,14 +1323,14 @@ pub extend Phase with Eq::{not_equal, equal}
 /// sender that wants the pieces.
 pub fn send_long(
   kind : @packet.Kind,
-  version : UInt,
+  version : UInt32,
   dcid : Bytes,
   scid : Bytes,
   number : Int64,
-  size : Int,
+  size : Int32,
   frames : Array[@frame.Frame],
   keys : @crypto.Keys,
-  token? : Bytes = b"",
+  token~ : Bytes = b"",
 ) -> Bytes {
   seal_long(
     kind,
@@ -1350,14 +1350,14 @@ pub fn send_long(
 /// minimum datagram needs (RFC 9000 §14.1).
 pub fn seal_long(
   kind : @packet.Kind,
-  version : UInt,
+  version : UInt32,
   dcid : Bytes,
   scid : Bytes,
   number : Int64,
-  size : Int,
+  size : Int32,
   payload : Bytes,
   keys : @crypto.Keys,
-  token? : Bytes = b"",
+  token~ : Bytes = b"",
 ) -> Bytes {
   let pn = @packet.number(number, None, size~)
   let h : @packet.Long = {
@@ -1379,11 +1379,11 @@ pub fn seal_long(
 pub fn send_short(
   dcid : Bytes,
   number : Int64,
-  size : Int,
+  size : Int32,
   frames : Array[@frame.Frame],
   keys : @crypto.Keys,
-  spin? : Bool = false,
-  key_phase? : Bool = false,
+  spin~ : Bool = false,
+  key_phase~ : Bool = false,
 ) -> Bytes {
   let payload = @packet.payload(frames)
   let pn = @packet.number(number, None, size~)
@@ -1408,7 +1408,7 @@ pub fn recv_long(
 /// The same for a 1-RTT packet, whose connection-id length only the receiver knows.
 pub fn recv_short(
   packet : Bytes,
-  dcid_len : Int,
+  dcid_len : Int32,
   keys : @crypto.Keys,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
   match keys.open(packet[:], largest=-1L, at=1 + dcid_len) {
@@ -1425,7 +1425,7 @@ pub fn recv_short(
 /// key builds one with this.
 pub fn signed(
   signer : &@spec.Signer,
-  scheme? : Int = @ext.ecdsa_secp256r1_sha256,
+  scheme~ : Int32 = @ext.ecdsa_secp256r1_sha256,
 ) -> (Bytes) -> Bytes {
   th => {
     @msg.certificate_verify(
