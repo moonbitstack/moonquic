@@ -1,5 +1,5 @@
 .*
 !.git*
 !.moonignore
-_build/
+_*
 target/
