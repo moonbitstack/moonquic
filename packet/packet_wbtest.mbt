@@ -514,7 +514,7 @@ test "a short header ends in its packet number, and its low bits say how long" {
     dcid: qv_hexb("c0ffee"),
   }
   for size in [1, 2, 3, 4] {
-    let pn = Bytes::make(size, b'	')
+    let pn = Bytes::make(size, b'\x09')
     let bytes = h.header(pn[:])
     // First byte, three connection-id bytes, then the number.
     assert_eq(bytes.length(), 4 + size)
