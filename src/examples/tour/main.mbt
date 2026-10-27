@@ -1,7 +1,7 @@
 ///|
 /// A QUIC packet built from the connection ID up, then taken back apart.
 ///
-///     moon run examples/tour
+///     moon run src/examples/tour
 #coverage.skip
 fn main {
   // A varint says how long it is in its own first two bits (RFC 9000 §16).

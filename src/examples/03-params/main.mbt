@@ -4,7 +4,7 @@
 /// back, and their varint values read out; the identifier constants are the RFC
 /// 9000 §18.2 assignments.
 ///
-///     moon run examples/20-quic-transport-params --target native
+///     moon run src/examples/20-quic-transport-params --target native
 #coverage.skip
 fn main {
   let params = [

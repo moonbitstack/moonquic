@@ -5,7 +5,7 @@
 /// queued data and an ACK clears it; and a `QuicConnection` numbers its three
 /// packet-number spaces and reassembles CRYPTO per level.
 ///
-///     moon run examples/26-quic-sender --target native
+///     moon run src/examples/26-quic-sender --target native
 #coverage.skip
 fn main {
   run() catch {

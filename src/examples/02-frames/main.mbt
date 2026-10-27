@@ -4,7 +4,7 @@
 /// ack-eliciting; a payload of several frames parses as a unit; and the long and
 /// short packet headers round-trip.
 ///
-///     moon run examples/19-quic-frames --target native
+///     moon run src/examples/19-quic-frames --target native
 #coverage.skip
 fn main {
   run() catch {

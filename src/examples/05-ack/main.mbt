@@ -4,7 +4,7 @@
 /// (Gap, Length) fields, and reconstructs the ranges. A `PacketNumberSpace`
 /// then owes an ACK after ack-eliciting packets and clears it once built.
 ///
-///     moon run examples/22-quic-ack --target native
+///     moon run src/examples/22-quic-ack --target native
 #coverage.skip
 fn main {
   run() catch {

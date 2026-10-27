@@ -5,7 +5,7 @@
 /// `QuicSendFlow` bounds each stream by the smaller of its own and the
 /// connection window.
 ///
-///     moon run examples/23-quic-flow --target native
+///     moon run src/examples/23-quic-flow --target native
 #coverage.skip
 fn main {
   run() catch {

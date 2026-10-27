@@ -14,12 +14,12 @@ let (plain, n) = server.open(wire[:], largest=0L).unwrap()
 let frames = @packet.read_payload(plain)
 ```
 
-Run `moon run examples/tour` for the whole surface in one go, or one of the eight worked examples a package at a time:
+Run `moon run src/examples/tour` for the whole surface in one go, or one of the eight worked examples a package at a time:
 
 ```
-moon run examples/02-frames     moon run examples/05-ack        moon run examples/08-streams
-moon run examples/03-params     moon run examples/06-flow       moon run examples/09-sender
-moon run examples/04-crypto     moon run examples/07-recovery
+moon run src/examples/02-frames     moon run src/examples/05-ack        moon run src/examples/08-streams
+moon run src/examples/03-params     moon run src/examples/06-flow       moon run src/examples/09-sender
+moon run src/examples/04-crypto     moon run src/examples/07-recovery
 ```
 
 ## Packages

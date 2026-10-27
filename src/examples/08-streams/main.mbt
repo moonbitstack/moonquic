@@ -4,7 +4,7 @@
 /// (§2.2) reordering out-of-order fragments and tracking the final size from the
 /// fin bit.
 ///
-///     moon run examples/25-quic-streams --target native
+///     moon run src/examples/25-quic-streams --target native
 #coverage.skip
 fn main {
   run() catch {

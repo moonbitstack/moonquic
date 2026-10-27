@@ -4,7 +4,7 @@
 /// protected and then recovered — AEAD authentication plus header protection —
 /// and a key update advances the secret deterministically (§6.1).
 ///
-///     moon run examples/04-crypto
+///     moon run src/examples/04-crypto
 #coverage.skip
 fn main {
   run() catch {

@@ -4,7 +4,7 @@
 /// rttvar / PTO (§5.3, §6.2.1); and the composed `QuicRecovery` loop sampling an
 /// RTT and freeing bytes on an ACK.
 ///
-///     moon run examples/24-quic-recovery --target native
+///     moon run src/examples/24-quic-recovery --target native
 #coverage.skip
 fn main {
   run() catch {
