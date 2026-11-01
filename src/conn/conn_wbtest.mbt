@@ -291,24 +291,24 @@ test "sender: a lost packet's stream data is re-queued and retransmitted" {
   let ack : @frame.Frame = Ack(largest=4UL, delay=0UL, first_range=2UL, ranges=[])
   s.on_ack(ack, 10L)
   assert_eq(s.outstanding(), [])
-  // The next packet retransmits a lost chunk (offset 4, the "4567" bytes) as a new packet.
+  // The next packet retransmits the oldest lost chunk (offset 0, the "0123" bytes) as a new packet.
   let (pn5, f5) = sender_poll(s, 20L)
   assert_eq(pn5, 5L)
   match f5[0] {
     Stream(id~, offset~, data~, ..) => {
       assert_eq(id, 0UL)
-      assert_eq(offset, 4UL)
-      assert_eq(data, b"4567")
+      assert_eq(offset, 0UL)
+      assert_eq(data, b"0123")
     }
     _ => abort("expected a retransmitted STREAM frame")
   }
-  // The other lost chunk (offset 0) retransmits next.
+  // The other lost chunk (offset 4) retransmits next.
   let (pn6, f6) = sender_poll(s, 21L)
   assert_eq(pn6, 6L)
   match f6[0] {
     Stream(offset~, data~, ..) => {
-      assert_eq(offset, 0UL)
-      assert_eq(data, b"0123")
+      assert_eq(offset, 4UL)
+      assert_eq(data, b"4567")
     }
     _ => abort("expected a retransmitted STREAM frame")
   }

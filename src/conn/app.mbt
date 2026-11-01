@@ -126,3 +126,16 @@ pub fn[A] Session::server_name(self : Session[A]) -> String? {
     None => None
   }
 }
+
+///|
+/// The TLS code of the cipher suite in force, 0 before one is chosen.
+pub fn[A] Session::suite_code(self : Session[A]) -> Int32 {
+  match self.tls {
+    Some(tls) =>
+      match tls.suite() {
+        Some(suite) => suite.code()
+        None => 0
+      }
+    None => 0
+  }
+}

@@ -761,8 +761,9 @@ fn[A] Session::on_stream(
   self.streams.accept(id, offset, data, fin~) catch {
     e => return self.close(stream_error(e), b"", now)
   }
+  // A frame for a stream already released was dropped above, and is no news.
   let event = Readable(id)
-  if !self.events.contains(event) {
+  if self.streams.streams.contains(id) && !self.events.contains(event) {
     self.events.push(event)
   }
 }

@@ -27,6 +27,7 @@ priv struct Part {
 priv struct Held {
   parts : Array[Part]
   mut end : UInt64
+  mut finished : Bool
 }
 
 ///|
@@ -47,6 +48,7 @@ pub struct Sender {
   priv retransmit : Array[@stream.Chunk]
   mut next_pn : Int64
   mut ack_exponent : Int32
+  mut probes : Int32
 }
 
 ///|
@@ -79,6 +81,7 @@ pub fn Sender::new(
     retransmit: [],
     next_pn: 0L,
     ack_exponent: 3,
+    probes: 0,
   }
 }
 
@@ -99,7 +102,7 @@ pub fn Sender::queue_stream(self : Sender, id : UInt64, bytes : Bytes) -> Unit {
   let held = match self.held.get(id) {
     Some(h) => h
     None => {
-      let h : Held = { parts: [], end: 0UL, }
+      let h : Held = { parts: [], end: 0UL, finished: false, }
       self.held[id] = h
       h
     }
@@ -114,6 +117,9 @@ pub fn Sender::queue_stream(self : Sender, id : UInt64, bytes : Bytes) -> Unit {
 /// Mark stream `id` finished.
 pub fn Sender::queue_fin(self : Sender, id : UInt64) -> Unit {
   self.sched.queue_fin(id)
+  if self.held.get(id) is Some(held) {
+    held.finished = true
+  }
 }
 
 ///|
@@ -184,9 +190,11 @@ fn Sender::materialize(self : Sender, send : @stream.Chunk) -> @frame.Frame {
 }
 
 ///|
-/// The next piece of stream data to send, skipping what belongs to a stream since abandoned.
+/// The next piece of stream data to send, skipping what belongs to a stream since abandoned. What
+/// was lost goes oldest first, since that is what the peer's reassembly is waiting on.
 fn Sender::next_chunk(self : Sender) -> @stream.Chunk? raise {
-  while self.retransmit.pop() is Some(chunk) {
+  while self.retransmit.length() > 0 {
+    let chunk = self.retransmit.remove(0)
     if self.held.contains(chunk.stream) || chunk.length == 0UL {
       return Some(chunk)
     }
@@ -198,11 +206,14 @@ fn Sender::next_chunk(self : Sender) -> @stream.Chunk? raise {
 /// The next packet to send at `now`, or `None` when the congestion window is closed or nothing
 /// is queued (RFC 9002 §7). Control frames go first, then one retransmission or one fresh chunk;
 /// the packet is recorded in the recovery state and its contents remembered for retransmission.
+/// A probe is sent whatever the window says, since it is how a sender whose whole window was lost
+/// finds out (RFC 9002 §7.5), and is a PING when there is nothing else to carry.
 pub fn Sender::poll_send(
   self : Sender,
   now : Int64,
 ) -> (Int64, Array[@frame.Frame])? raise {
-  guard self.recovery.can_send(1L) else { return None }
+  let probing = self.probes > 0
+  guard self.recovery.can_send(1L) || probing else { return None }
   let frames : Array[@frame.Frame] = []
   let carried : Carried = { chunks: [], control: [], }
   let mut size = 0
@@ -222,7 +233,14 @@ pub fn Sender::poll_send(
     carried.chunks.push(chunk)
     size = size + chunk.length.to_int()
   }
+  if frames.length() == 0 && probing {
+    frames.push(Ping)
+    size = 1
+  }
   guard frames.length() > 0 else { return None }
+  if probing {
+    self.probes = self.probes - 1
+  }
   let pn = self.next_pn
   self.next_pn = self.next_pn + 1L
   self.recovery.on_sent(pn, at=now, size=size.to_int64())
@@ -266,6 +284,9 @@ fn Sender::settle(self : Sender, pn : Int64) -> Unit {
     while held.parts.length() > 0 && held.parts[0].live == 0UL {
       held.parts.remove(0) |> ignore
     }
+    if held.finished && held.parts.length() == 0 {
+      self.held.remove(chunk.stream)
+    }
   }
 }
 
@@ -298,22 +319,23 @@ pub fn Sender::on_ack(
 
 ///|
 /// Handle the probe timeout firing at `now` (RFC 9002 §6.2.4). If the PTO deadline has passed with
-/// packets still outstanding, re-queue the oldest outstanding packet's contents as a probe — a
-/// later `poll_send` puts it back on the wire — and back off the timer for the next arming. Unlike
-/// loss detection, this neither declares packets lost nor reduces the congestion window. Returns
-/// whether a probe was armed.
+/// packets still outstanding, re-queue the contents of the two oldest packets that still hold any
+/// as probes (§6.2.4 allows two, so one lost does not cost another timeout) — a later `poll_send`
+/// puts them back on the wire — and back off the timer for the next arming. A packet that went out
+/// again at an earlier timeout stays outstanding until an ACK settles it, which is why the oldest
+/// alone will not do. Unlike loss detection, this neither declares packets lost nor reduces the
+/// congestion window. Returns whether a probe was armed.
 pub fn Sender::on_pto_timeout(self : Sender, now : Int64) -> Bool {
   guard self.recovery.pto_deadline() is Some(deadline) else { return false }
   guard now >= deadline else { return false }
   let out = self.recovery.outstanding()
   guard out.length() > 0 else { return false }
-  let mut oldest = out[0]
-  for pn in out {
-    if pn < oldest {
-      oldest = pn
-    }
+  let oldest = out.filter(pn => self.in_packet.contains(pn))
+  oldest.sort()
+  for pn in oldest[:if oldest.length() < 2 { oldest.length() } else { 2 }] {
+    self.requeue(pn)
   }
-  self.requeue(oldest)
+  self.probes = 2
   self.recovery.on_pto()
   true
 }

@@ -202,6 +202,7 @@ pub struct Streams {
   uni_size : UInt64
   mut bidi_closed : UInt64
   mut uni_closed : UInt64
+  // private fields
 }
 pub fn Streams::accept(Self, UInt64, UInt64, Bytes, fin~ : Bool) -> Unit raise Refused
 pub fn Streams::count(Self) -> Int32

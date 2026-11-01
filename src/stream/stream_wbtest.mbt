@@ -670,3 +670,30 @@ test "a reader's progress earns a MAX_STREAM_DATA as well as a MAX_DATA" {
   assert_eq(s.max_stream_data(0), None)
   assert_eq(s.window(0).limit(), 30UL)
 }
+
+///|
+test "a stream below others already open is late, not gone" {
+  let streams = Streams::new(4096, 4096, server=true)
+  streams.accept(8UL, 0UL, b"later", fin=true)
+  streams.accept(4UL, 0UL, b"late", fin=true)
+  assert_eq(streams.read(4UL), b"late")
+  assert_true(streams.finished(4UL))
+}
+
+///|
+test "a stream released stays released, in any order" {
+  let streams = Streams::new(4096, 4096, server=true)
+  for id in [0UL, 4UL, 8UL] {
+    streams.accept(id, 0UL, b"x", fin=true)
+  }
+  streams.release(8UL)
+  streams.release(0UL)
+  streams.accept(8UL, 0UL, b"x", fin=true)
+  assert_false(streams.streams.contains(8UL))
+  streams.accept(0UL, 0UL, b"x", fin=true)
+  assert_false(streams.streams.contains(0UL))
+  assert_true(streams.streams.contains(4UL))
+  streams.release(4UL)
+  assert_eq(streams.bidi_gone.floor, 3UL)
+  assert_eq(streams.bidi_gone.above.length(), 0)
+}

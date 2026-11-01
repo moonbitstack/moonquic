@@ -651,3 +651,68 @@ test "an idle connection is gone, and its application is told" {
   assert_eq(conn.take_events(), [Closed(0UL)])
   assert_eq(server.take_busy().length(), 1)
 }
+
+///|
+test "a window lost whole still gets a probe out, past the closed window" {
+  let s = Sender::new(1_000_000UL, 1_000_000UL, 1200L, 25000L, 1000L, 1000UL)
+  s.queue_stream(0UL, Bytes::make(100000, b'z'))
+  let mut sent = 0
+  while s.poll_send(1000L) is Some(_) {
+    sent = sent + 1
+  }
+  assert_true(sent > 0)
+  assert_eq(s.poll_send(1000L), None)
+  assert_true(s.on_pto_timeout(10_000_000L))
+  let (_, frames) = s.poll_send(10_000_000L).unwrap()
+  assert_true(frames[0] is Stream(offset=0UL, ..))
+}
+
+///|
+test "a probe with nothing to resend is a PING" {
+  let s = Sender::new(1_000_000UL, 1_000_000UL, 1200L, 25000L, 1000L, 1000UL)
+  s.queue_stream(0UL, b"hello")
+  let (first, _) = s.poll_send(1000L).unwrap()
+  assert_true(s.on_pto_timeout(10_000_000L))
+  let (_, again) = s.poll_send(10_000_000L).unwrap()
+  assert_true(again[0] is Stream(offset=0UL, ..))
+  let (_, ping) = s.poll_send(10_000_000L).unwrap()
+  assert_eq(ping, [Ping])
+  assert_true(first >= 0L)
+}
+
+///|
+test "stream data written in two goes is sent as one run, and released as it is acknowledged" {
+  let s = Sender::new(1_000_000UL, 1_000_000UL, 1200L, 25000L, 1000L, 4UL)
+  s.queue_stream(0UL, b"abc")
+  s.queue_stream(0UL, b"defgh")
+  s.queue_fin(0UL)
+  let got = Buffer()
+  let mut largest = 0L
+  while s.poll_send(1000L) is Some((pn, frames)) {
+    largest = pn
+    guard frames[0] is Stream(offset~, data~, ..) else { fail("not a stream") }
+    assert_eq(offset, got.length().to_uint64())
+    got.write_bytes(data)
+  }
+  assert_eq(got.to_bytes(), b"abcdefgh")
+  assert_eq(s.buffered(0UL), 8UL)
+  let ack : @frame.Frame = Ack(
+    largest=largest.reinterpret_as_uint64(),
+    delay=0UL,
+    first_range=largest.reinterpret_as_uint64(),
+    ranges=[],
+  )
+  s.on_ack(ack, 2000L)
+  assert_eq(s.buffered(0UL), 0UL)
+}
+
+///|
+test "abandoning a stream resets it and drops what was queued" {
+  let s = Sender::new(1_000_000UL, 1_000_000UL, 1200L, 25000L, 1000L, 4UL)
+  s.queue_stream(0UL, b"abcdefgh")
+  let _ = s.poll_send(1000L)
+  s.abandon(0UL, 7UL)
+  let (_, frames) = s.poll_send(1000L).unwrap()
+  assert_eq(frames, [ResetStream(id=0UL, error_code=7UL, final_size=8UL)])
+  assert_eq(s.poll_send(1000L), None)
+}

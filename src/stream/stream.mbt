@@ -666,6 +666,33 @@ struct Incoming {
 
 ///|
 /// A connection's receiving streams and its connection-wide window.
+/// Which of the peer's streams of one kind have been released, by sequence number. Everything
+/// below `floor` has, so a long connection's record stays the size of what is still open.
+priv struct Gone {
+  mut floor : UInt64
+  above : Set[UInt64]
+}
+
+///|
+fn Gone::new() -> Gone {
+  { floor: 0, above: Set([]), }
+}
+
+///|
+fn Gone::has(self : Gone, seq : UInt64) -> Bool {
+  seq < self.floor || self.above.contains(seq)
+}
+
+///|
+fn Gone::add(self : Gone, seq : UInt64) -> Unit {
+  self.above.add(seq)
+  while self.above.contains(self.floor) {
+    self.above.remove(self.floor)
+    self.floor = self.floor + 1
+  }
+}
+
+///|
 pub struct Streams {
   streams : Map[UInt64, Incoming]
   connection : Window
@@ -678,6 +705,8 @@ pub struct Streams {
   uni_size : UInt64
   mut bidi_closed : UInt64
   mut uni_closed : UInt64
+  priv bidi_gone : Gone
+  priv uni_gone : Gone
 }
 
 ///|
@@ -715,6 +744,8 @@ pub fn Streams::new(
     uni_size: uni.limit,
     bidi_closed: 0,
     uni_closed: 0,
+    bidi_gone: Gone::new(),
+    uni_gone: Gone::new(),
   }
 }
 
@@ -738,7 +769,8 @@ pub fn Streams::on_stream(
 ///|
 /// Take a STREAM frame and hold its bytes until `read` asks for them, so that flow-control credit
 /// comes back only as the application consumes. Frames for a stream already released are
-/// retransmissions, and are dropped.
+/// retransmissions, and are dropped. A stream numbered below others already open is not one of
+/// those: under loss it is simply late (RFC 9000 §3.2).
 pub fn Streams::accept(
   self : Streams,
   id : UInt64,
@@ -747,11 +779,11 @@ pub fn Streams::accept(
   fin~ : Bool,
 ) -> Unit raise Refused {
   if !is_local(id, server=self.server) {
-    let quota = if is_bidi(id) { self.bidi } else { self.uni }
-    if sequence(id) < quota.opened && !self.streams.contains(id) {
+    let gone = if is_bidi(id) { self.bidi_gone } else { self.uni_gone }
+    if gone.has(sequence(id)) {
       return
     }
-    quota.open(id)
+    (if is_bidi(id) { self.bidi } else { self.uni }).open(id)
   }
   let s = self.open(id)
   let high = offset + data.length().to_uint64()
@@ -806,8 +838,10 @@ pub fn Streams::release(self : Streams, id : UInt64) -> Unit {
   if !is_local(id, server=self.server) {
     if is_bidi(id) {
       self.bidi_closed = self.bidi_closed + 1
+      self.bidi_gone.add(sequence(id))
     } else {
       self.uni_closed = self.uni_closed + 1
+      self.uni_gone.add(sequence(id))
     }
   }
 }
