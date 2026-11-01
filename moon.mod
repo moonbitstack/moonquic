@@ -1,6 +1,6 @@
 name = "moonbitstack/moonquic"
 
-version = "0.3.6"
+version = "0.3.7"
 
 readme = "README.md"
 
@@ -13,7 +13,8 @@ keywords = [ "quic", "rfc9000", "rfc9001", "transport", "moonbit" ]
 description = "QUIC transport for MoonBit."
 
 import {
-  "moonbitstack/moontls@0.9.6",
+  "moonbitstack/moontls@0.9.7",
+  "moonbitstack/mooncred@0.6.7",
   "moonbitstack/mooncrypt@0.4.6",
   "moonbitstack/moonvar@0.2.0",
 }

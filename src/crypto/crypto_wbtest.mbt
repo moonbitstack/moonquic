@@ -350,3 +350,50 @@ test "a short-header packet round-trips under the preset suite" {
     assert_eq(got, number)
   }
 }
+
+///|
+test "ChaCha20-Poly1305 protects a short packet as RFC 9001 A.5 shows" {
+  let secret = qc_hexb(
+    "9ac312a7f877468ebe69422748ad00a15443f18203a07d6060f688f30f21632b",
+  )
+  let keys = Keys::of(secret[:], suite=chacha20)
+  assert_eq(
+    keys.key,
+    qc_hexb("c6d98ff3441c3fe1b2182094f69caa2ed4b716b65488960a7a984979fb23e1c8"),
+  )
+  assert_eq(keys.iv, qc_hexb("e0459b3474bdd0e44a41c144"))
+  assert_eq(
+    keys.hp,
+    qc_hexb("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4"),
+  )
+  let packet = keys.seal(
+    qc_hexb("4200bff4")[:],
+    b"\x01"[:],
+    number=654360564L,
+    suite=chacha20,
+  )
+  assert_eq(packet, qc_hexb("4cfe4189655e5cd55c41f69080575d7999c25a5bfb"))
+  let (plain, number) = keys
+    .open(packet[:], largest=654360563L, at=1, suite=chacha20)
+    .unwrap()
+  assert_eq(plain, b"\x01")
+  assert_eq(number, 654360564L)
+}
+
+///|
+test "AES-256-GCM expands to the sizes its cipher needs" {
+  let keys = Keys::of(Bytes::make(48, b'\x11')[:], suite=aes256)
+  assert_eq(keys.key.length(), 32)
+  assert_eq(keys.hp.length(), 32)
+  assert_eq(keys.iv.length(), 12)
+  let packet = keys.seal(
+    b"\x43\x00\x00\x00\x07"[:],
+    b"payload"[:],
+    number=7L,
+    suite=aes256,
+  )
+  assert_eq(
+    keys.open(packet[:], largest=6L, at=1, suite=aes256).unwrap().0,
+    b"payload",
+  )
+}

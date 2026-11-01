@@ -433,6 +433,23 @@ pub fn Space::on_packet_received(
 }
 
 ///|
+/// The largest packet number received in this space, or -1 before the first: what the next
+/// number on the wire is expanded against (RFC 9000 A.3).
+pub fn Space::largest_received(self : Space) -> Int64 {
+  match self.received.largest() {
+    Some(pn) => pn.reinterpret_as_int64()
+    None => -1L
+  }
+}
+
+///|
+/// Whether packet `pn` has been processed already, which a receiver must not do twice
+/// (RFC 9000 §12.3).
+pub fn Space::seen(self : Space, pn : Int64) -> Bool {
+  self.received.contains(pn.reinterpret_as_uint64())
+}
+
+///|
 /// Record that the peer acknowledged up to `largest`, advancing the high-water mark
 /// (an older ACK never lowers it).
 pub fn Space::on_ack_received(self : Space, largest : Int64) -> Unit {

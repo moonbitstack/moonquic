@@ -37,16 +37,46 @@ moon run src/examples/04-crypto     moon run src/examples/07-recovery
 
 A long header splits in two on purpose. `Long` is the version-independent part [RFC 8999](https://www.rfc-editor.org/rfc/rfc8999) pins down — form, version, connection IDs — which anything can read without knowing the version. `Tail` is version 1's continuation, the Initial token and the Length field, and it is where a reader needs to know which version it is looking at.
 
+## Serving
+
+`Endpoint::server` runs the TLS handshake itself, on moontls's QUIC mode. Datagrams go in with `recv` and come out of `poll_out`, the timers run on `tick`, and each takes the time from the caller:
+
+```moonbit
+let server : @conn.Endpoint[Addr] = @conn.Endpoint::server(
+  @conn.Config::default(),
+  @tls.Server::new(chain, key, alpn=["h3"]),
+  rand=entropy,
+)
+server.recv(datagram, from, now)
+for conn in server.take_busy() {
+  for event in conn.take_events() {
+    match event {
+      Readable(id) => {
+        let bytes = conn.read(id)
+        conn.write(id, reply(bytes), fin=conn.finished(id))
+      }
+      _ => ()
+    }
+  }
+}
+while server.poll_out(now) is Some((datagram, to)) {
+  send(datagram, to)
+}
+```
+
+A stream's credit goes back to the peer as `read` takes its bytes, so a slow application slows its peer down. `buffered` says how much written data is still unacknowledged, which is what a writer paces itself by.
+
 ## Everything the protocol leaves open is a parameter
 
 The cipher suite is a record with a public preset:
 
 ```moonbit
 @crypto.initial(dcid[:])                              // AEAD_AES_128_GCM, RFC 9001 §5.2
-@crypto.initial(dcid[:], suite={ ..@crypto.suite, key: 32 })   // AES-256-GCM
+@crypto.Keys::of(secret[:], suite=@crypto.aes256)     // AEAD_AES_256_GCM
+@crypto.Keys::of(secret[:], suite=@crypto.chacha20)   // AEAD_CHACHA20_POLY1305
 ```
 
-`Suite` carries the AEAD as a function, so a cipher this module has none of — ChaCha20-Poly1305, say — plugs in by implementing `@spec.Aead` and changing nothing here. `Version` does the same for the constants a QUIC version fixes: the Initial salt, the four HKDF labels, and the Retry integrity key. The preset is version 1; [RFC 9369](https://www.rfc-editor.org/rfc/rfc9369) changes every one of them for version 2, and that is a record away.
+`Suite` carries the AEAD as a function, so a cipher this module has none of plugs in by implementing `@spec.Aead` and changing nothing here. `Version` does the same for the constants a QUIC version fixes: the Initial salt, the four HKDF labels, and the Retry integrity key. The preset is version 1; [RFC 9369](https://www.rfc-editor.org/rfc/rfc9369) changes every one of them for version 2, and that is a record away.
 
 `@recovery.Policy` holds every constant RFC 9002 marks as a tunable — the two loss thresholds, the granularity, the initial round trip, the persistent-congestion threshold, the loss reduction factor — at the values the RFC recommends. The congestion controller is a trait, because §7 opens by saying an endpoint may use any: NewReno is what ships, and Cubic or BBR answer the same seven questions.
 
@@ -54,7 +84,7 @@ The cipher suite is a record with a public preset:
 
 Sockets, and anything that needs a clock of its own. The TLS handshake — that is `moontls`, whose key schedule RFC 9001 §5.2 reuses verbatim. HTTP/3 and QPACK — those are [`moonhttp`](https://github.com/moonbitstack/moonhttp)'s, because HTTP/3 is a version of HTTP and QPACK is to it what HPACK is to HTTP/2.
 
-Connection migration, path validation, stateless reset, 0-RTT and coalesced packets are not implemented. The client side of the connection is not either: `conn` has a server's table and event loop, and a client drives the same packages by hand.
+Connection migration, path validation, stateless reset and 0-RTT are not implemented, and the server says so with `disable_active_migration`. The client side of the connection is not either: `conn` has a server's table and event loop, and a client drives the same packages by hand.
 
 A signing key never enters this library. A server's handshake flight takes the CertificateVerify as a function of the transcript hash, so whoever holds the key builds the body at the one moment §4.4.3 says to sign — `@conn.signed(key)` is that function for a `@spec.Signer`.
 

@@ -410,7 +410,7 @@ test "server conn: send_server_hello produces a ServerHello the client can decod
   // Handshake-space messages are sent.
   assert_eq(server.handshake_state(), RecvdClientHello)
   // The client (sharing the Initial keys) receives it and decodes the ServerHello.
-  let decoded = match recv_long(sh_packet, keys) {
+  let decoded = match recv_long(sh_packet, server.reply_keys) {
     Some((frames, _)) => {
       let mut result : @msg.Server? = None
       for frame in frames {
@@ -767,7 +767,7 @@ fn qs_short_pn(
 
 ///|
 fn qs_open(packet : Bytes, cid : Bytes) -> Array[@frame.Frame] raise {
-  match recv_long(packet, client_initial_keys(cid)) {
+  match recv_long(packet, @crypto.initial(cid[:]).1) {
     Some((frames, _)) => frames
     None => abort("the server's Initial packet did not authenticate")
   }

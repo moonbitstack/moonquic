@@ -13,6 +13,8 @@ import {
   "moonbitstack/moonquic/packet",
   "moonbitstack/moontls/keys",
   "moonbitstack/mooncrypt/spec",
+  "moonbitstack/mooncrypt/aead/chachapoly",
+  "moonbitstack/mooncrypt/cipher/chacha20",
   "moonbitstack/mooncrypt/cipher/aes",
   "moonbitstack/mooncrypt/aead/gcm",
   "moonbitstack/moonvar/fixed",

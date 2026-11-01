@@ -8,11 +8,19 @@ import {
 }
 
 // Values
+pub let aes256 : Suite
+
 pub fn aes_gcm(Bytes) -> &@spec.Aead
 
 pub fn aes_mask(Bytes, BytesView) -> Bytes
 
 pub fn application(BytesView, BytesView, client~ : Bool, suite? : Suite, version? : Version) -> Keys
+
+pub let chacha20 : Suite
+
+pub fn chacha_mask(Bytes, BytesView) -> Bytes
+
+pub fn chacha_poly(Bytes) -> &@spec.Aead
 
 pub fn handshake(BytesView, BytesView, client~ : Bool, suite? : Suite, version? : Version) -> Keys
 

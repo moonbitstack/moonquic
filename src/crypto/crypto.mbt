@@ -8,9 +8,9 @@
 /// cipher that turns a ciphertext sample into a header-protection mask.
 ///
 /// The preset is AEAD_AES_128_GCM with SHA-256, which §5.2 fixes for Initial packets
-/// and every space uses until TLS negotiates otherwise. AES-256-GCM is `{ ..suite,
-/// key: 32 }`; a suite this library has no cipher for — ChaCha20-Poly1305, say — is a
-/// `@spec.Aead` implementation away and needs no change here.
+/// and every space uses until TLS negotiates otherwise. `aes256` and `chacha20` are the
+/// other two; a suite beyond these is a `@spec.Aead` implementation away and needs no
+/// change here.
 pub(all) struct Suite {
   digest : @keys.Digest
   key : Int32
@@ -31,6 +31,20 @@ pub let suite : Suite = {
   tag: 16,
   aead: aes_gcm,
   mask: aes_mask,
+}
+
+///|
+/// AEAD_AES_256_GCM with SHA-384 (RFC 9001 §5.3).
+pub let aes256 : Suite = { ..suite, digest: Sha384, key: 32, hp: 32, }
+
+///|
+/// AEAD_CHACHA20_POLY1305 with SHA-256 (RFC 9001 §5.3, §5.4.4).
+pub let chacha20 : Suite = {
+  ..suite,
+  key: 32,
+  hp: 32,
+  aead: chacha_poly,
+  mask: chacha_mask,
 }
 
 ///|
@@ -77,6 +91,29 @@ pub fn aes_mask(hp : Bytes, sample : BytesView) -> Bytes {
     _ => abort("moonquic: \{hp.length()} bytes is not an AES key")
   }
   cipher.encrypt(sample)[0:5].to_owned()
+}
+
+///|
+/// ChaCha20-Poly1305 over a 32-byte key.
+pub fn chacha_poly(key : Bytes) -> &@spec.Aead {
+  @chachapoly.ChaChaPoly::new(key[:]) catch {
+    _ => abort("moonquic: \{key.length()} bytes is not a ChaCha20 key")
+  }
+}
+
+///|
+/// The ChaCha20 header-protection mask (RFC 9001 §5.4.4): the sample's first four bytes are the
+/// block counter, little-endian, the other twelve the nonce, and the mask the first five bytes of
+/// that keystream block.
+pub fn chacha_mask(hp : Bytes, sample : BytesView) -> Bytes {
+  let counter = sample[0].to_uint() |
+    (sample[1].to_uint() << 8) |
+    (sample[2].to_uint() << 16) |
+    (sample[3].to_uint() << 24)
+  let block = @chacha20.Cipher::new(hp[:]).block(counter, sample[4:16]) catch {
+    _ => abort("moonquic: \{hp.length()} bytes is not a ChaCha20 key")
+  }
+  block[0:5].to_owned()
 }
 
 ///|

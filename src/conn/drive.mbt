@@ -1,0 +1,343 @@
+// Copyright 2026 Leo Cheng
+// SPDX-License-Identifier: Apache-2.0
+
+// What turns a connection with a TLS server into a real one (RFC 9001 §4): CRYPTO bytes go to
+// `@tls.Conn`, and what it asks for comes back as keys to install and bytes to send. Datagrams are
+// built here too, since a handshake needs several encryption levels in one datagram and loses
+// nothing to the padding rule that way (RFC 9000 §12.2, §14.1).
+
+///|
+/// One level's outgoing CRYPTO stream, and what is in flight on it.
+priv struct Outbox {
+  mut bytes : Bytes
+  mut next : Int32
+  lost : Array[(Int32, Int32)]
+  flight : Map[Int64, (Int32, Int32)]
+  mut deadline : Int64
+  mut backoff : Int32
+}
+
+///|
+fn Outbox::new() -> Outbox {
+  { bytes: b"", next: 0, lost: [], flight: Map([]), deadline: 0L, backoff: 0, }
+}
+
+///|
+fn Outbox::write(self : Outbox, data : Bytes) -> Unit {
+  self.bytes = join(self.bytes, data)
+}
+
+///|
+/// The next run of at most `room` bytes to put in a CRYPTO frame: something lost, else something new.
+fn Outbox::take(self : Outbox, room : Int32) -> (Int32, Int32)? {
+  guard room > 0 else { return None }
+  match self.lost.pop() {
+    Some((at, size)) => {
+      if size > room {
+        self.lost.push((at + room, size - room))
+      }
+      Some((at, if size > room { room } else { size }))
+    }
+    None => {
+      let left = self.bytes.length() - self.next
+      guard left > 0 else { return None }
+      let size = if left > room { room } else { left }
+      let at = self.next
+      self.next = self.next + size
+      Some((at, size))
+    }
+  }
+}
+
+///|
+/// The ranges a packet at this level acknowledges no longer need resending.
+fn Outbox::on_ack(self : Outbox, frame : @frame.Frame) -> Unit raise {
+  let acked = frame.acked()
+  for pn in self.flight.keys().collect() {
+    let number = pn.reinterpret_as_uint64()
+    if acked.iter().any(r => number >= r.0 && number <= r.1) {
+      self.flight.remove(pn)
+    }
+  }
+  if self.flight.length() == 0 {
+    self.backoff = 0
+  }
+}
+
+///|
+/// A probe timeout for this level (RFC 9002 §6.2.4): everything in flight goes out again, and the
+/// timer doubles.
+fn Outbox::tick(self : Outbox, now : Int64, pto : Int64) -> Unit {
+  guard self.flight.length() > 0 && now >= self.deadline else { return }
+  for run in self.flight.values() {
+    self.lost.push(run)
+  }
+  self.flight.clear()
+  self.backoff = self.backoff + 1
+  self.deadline = now + (pto << self.backoff)
+}
+
+///|
+fn Outbox::clear(self : Outbox) -> Unit {
+  self.bytes = b""
+  self.next = 0
+  self.lost.clear()
+  self.flight.clear()
+}
+
+///|
+/// The `@crypto.Suite` a TLS cipher suite names.
+fn suite_of(suite : @record.Suite) -> @crypto.Suite {
+  match suite {
+    Aes128Gcm => @crypto.suite
+    Aes256Gcm => @crypto.aes256
+    ChaCha20Poly1305 => @crypto.chacha20
+  }
+}
+
+///|
+fn tls_level(level : Level) -> @tls.Level {
+  match level {
+    Initial => Initial
+    Handshake => Handshake
+    Application => Application
+  }
+}
+
+///|
+/// The transport parameters this server declares for a connection (RFC 9000 §18.2).
+/// `disable_active_migration` is set because this library has no path validation yet.
+fn declared(cfg : Config, original : Bytes, cid : Bytes) -> Bytes {
+  let limits = Limits::new(
+    idle_timeout=(cfg.idle_timeout / 1000L).reinterpret_as_uint64(),
+    data=cfg.initial_max_data,
+    stream_data_bidi_local=cfg.initial_max_stream_data,
+    stream_data_bidi_remote=cfg.initial_max_stream_data,
+    stream_data_uni=cfg.initial_max_stream_data,
+    streams_bidi=cfg.streams_bidi,
+    streams_uni=cfg.streams_uni,
+    max_ack_delay=(cfg.max_ack_delay / 1000L).reinterpret_as_uint64(),
+    migration=false,
+  )
+  let params = limits.params()
+  params.push({ kind: OriginalDcid, value: original, })
+  params.push({ kind: InitialScid, value: cid, })
+  encode(params[:])
+}
+
+///|
+fn[A] Session::outbox(self : Session[A], level : Level) -> Outbox {
+  match level {
+    Initial => self.initial_out
+    _ => self.handshake_out
+  }
+}
+
+///|
+/// Feed a packet's CRYPTO frames to the handshake and do what it asks. An alert closes the
+/// connection with the matching CRYPTO_ERROR (RFC 9001 §4.8).
+fn[A] Session::on_crypto(
+  self : Session[A],
+  tls : @tls.Conn,
+  level : Level,
+  frames : Array[@frame.Frame],
+  pn : Int64,
+  now : Int64,
+) -> Unit {
+  self.core.conn.on_packet_received(
+    level,
+    pn,
+    @packet.payload_elicits_ack(frames),
+  )
+  for frame in frames {
+    guard frame is Crypto(offset~, data~) else { continue }
+    let ready = self.core.conn.on_crypto_frame(level, offset, data) catch {
+      _ => return self.close(crypto_buffer_exceeded, b"", now)
+    }
+    guard ready.length() > 0 else { continue }
+    tls.crypto(tls_level(level), ready[:]) catch {
+      @alert.Alert(kind~, ..) =>
+        return self.close(
+          crypto_error + kind.code().to_uint64(),
+          b"TLS alert",
+          now,
+        )
+    }
+  }
+  for step in tls.steps() {
+    match step {
+      Send(Initial, data) => self.initial_out.write(data)
+      Send(_, data) => self.handshake_out.write(data)
+      Keys(Handshake, client~, server~) => {
+        if tls.suite() is Some(suite) {
+          self.suite = suite_of(suite)
+        }
+        self.adopt_declared(tls, now)
+        self.install_handshake_keys(client, server)
+      }
+      Keys(Application, client~, server~) =>
+        self.install_app_keys(client, server)
+      Keys(_, ..) => ()
+    }
+  }
+  if tls.is_connected() && !self.confirmed {
+    self.confirmed = true
+    self.handshake_gone = true
+    self.handshake_out.clear()
+    self.sender.queue_control(HandshakeDone)
+    self.events.push(Connected)
+  }
+}
+
+///|
+/// Take the client's transport parameters from the handshake, holding them to the connection id
+/// it actually used (RFC 9000 §7.3).
+fn[A] Session::adopt_declared(
+  self : Session[A],
+  tls : @tls.Conn,
+  now : Int64,
+) -> Unit {
+  guard tls.peer_params() is Some(raw) else { return }
+  guard decode(raw[:]) is Some(params) else {
+    return self.close(transport_parameter_error, b"", now)
+  }
+  match find(params[:], InitialScid) {
+    Some(p) if p.value == self.peer_cid => ()
+    _ => return self.close(transport_parameter_error, b"", now)
+  }
+  self.apply_peer_params(params)
+  let peer = Limits::read(params[:])
+  // The peer's limits name streams by who opened them, so what limits a response on a stream the
+  // client opened is the client's bidi_local (RFC 9000 §18.2).
+  self.sender.sched.on_params(
+    data=peer.data,
+    bidi=peer.stream_data_bidi_local,
+    uni=peer.stream_data_uni,
+  )
+  self.sender.ack_exponent = peer.ack_delay_exponent.to_int()
+}
+
+///|
+/// The bytes a packet at `level` spends on anything but frames, with the Length field and the
+/// packet number at the widest this connection writes them.
+fn[A] Session::overhead(self : Session[A], level : Level) -> Int32 {
+  match level {
+    Initial => 31 + self.peer_cid.length() + self.cid.length()
+    Handshake => 30 + self.peer_cid.length() + self.cid.length()
+    Application => 21 + self.peer_cid.length()
+  }
+}
+
+///|
+/// Build a datagram for a connection with a TLS server: the handshake levels' ACKs and CRYPTO in
+/// one coalesced datagram, or a 1-RTT packet alone (RFC 9000 §12.2).
+fn[A] Session::assemble(self : Session[A], now : Int64) -> Unit raise {
+  let limit = self.cfg.max_datagram.to_int()
+  let planned : Array[(Level, Bytes, Int64)] = []
+  let mut used = 0
+  let mut floor = false
+  for level in [Level::Initial, Level::Handshake] {
+    if (level == Level::Initial && self.initial_gone) ||
+      (level == Level::Handshake && (self.handshake_gone || self.hs_tx is None)) {
+      continue
+    }
+    let frames : Array[@frame.Frame] = []
+    let cost = self.overhead(level)
+    let mut room = limit - used - cost
+    let space = self.core.conn.space(level)
+    if space.ack_pending() && space.build_ack(0UL) is Some(ack) {
+      frames.push(ack)
+      room = room - @frame.encode(ack).length()
+    }
+    let outbox = self.outbox(level)
+    // One byte of type, four of offset, two of length.
+    let run = outbox.take(room - 7)
+    if run is Some((at, size)) {
+      let data = outbox.bytes[at:at + size].to_owned()
+      frames.push(Crypto(offset=at.to_uint64(), data~))
+    }
+    guard frames.length() > 0 else { continue }
+    let pn = self.core.conn.next_packet_number(level)
+    if run is Some(sent) {
+      outbox.flight[pn] = sent
+      outbox.deadline = now + (self.sender.recovery.pto() << outbox.backoff)
+    }
+    let payload = @packet.payload(frames)
+    floor = floor || (level == Level::Initial && run is Some(_))
+    used = used + payload.length() + cost
+    planned.push((level, payload, pn))
+  }
+  guard planned.length() > 0 else { return self.next_app_packet(now) }
+  let datagram = Buffer()
+  for i, packet in planned {
+    let (level, payload, pn) = packet
+    let build = (body : Bytes) => self.seal(level, body, pn)
+    if i == planned.length() - 1 && floor {
+      datagram.write_bytes(
+        pad(payload, build, min_datagram - datagram.length()),
+      )
+    } else {
+      datagram.write_bytes(build(payload))
+    }
+  }
+  self.out.push(datagram.to_bytes())
+}
+
+///|
+/// A 1-RTT packet: whatever the send loop has ready, with the ACK owed.
+fn[A] Session::next_app_packet(self : Session[A], now : Int64) -> Unit raise {
+  guard self.app_tx is Some(_) else { return }
+  let space = self.core.conn.space(Level::Application)
+  let ack = if space.ack_pending() { space.build_ack(0UL) } else { None }
+  match self.sender.poll_send(now) {
+    Some((pn, frames)) => {
+      space.advance_past(pn)
+      match ack {
+        Some(a) if @frame.encode(a).length() <= control_room =>
+          self.emit(Level::Application, [a, ..frames], pn)
+        Some(a) => {
+          self.emit(Level::Application, frames, pn)
+          self.send(Level::Application, [a])
+        }
+        None => self.emit(Level::Application, frames, pn)
+      }
+    }
+    None => if ack is Some(a) { self.send(Level::Application, [a]) }
+  }
+}
+
+///|
+/// A short-header packet's frames. One that does not open under the current keys may be the first
+/// under the next phase (RFC 9001 §6): only a real packet opens under those, so one that does
+/// settles it, and the keys in both directions move on. The header-protection key stays.
+fn[A] Session::open_app(
+  self : Session[A],
+  packet : Bytes,
+  keys : @crypto.Keys,
+  largest : Int64,
+) -> (Array[@frame.Frame], Int64)? {
+  let n = self.cid.length()
+  let opened = recv_short(packet, n, keys, largest~, suite=self.suite) catch {
+    _ => None
+  }
+  guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
+  let (rx_secret, rolled) = @crypto.next(
+    self.app_rx_secret[:],
+    suite=self.suite,
+  )
+  let next = { ..rolled, hp: keys.hp, }
+  let moved = recv_short(packet, n, next, largest~, suite=self.suite) catch {
+    _ => None
+  }
+  guard moved is Some(_) && self.app_tx is Some(tx) else { return None }
+  let (tx_secret, written) = @crypto.next(
+    self.app_tx_secret[:],
+    suite=self.suite,
+  )
+  self.app_rx = Some(next)
+  self.app_rx_secret = rx_secret
+  self.app_tx = Some({ ..written, hp: tx.hp, })
+  self.app_tx_secret = tx_secret
+  self.key_phase = !self.key_phase
+  moved
+}

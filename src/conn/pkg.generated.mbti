@@ -13,6 +13,7 @@ import {
   "moonbitstack/moontls/ext",
   "moonbitstack/moontls/hs",
   "moonbitstack/moontls/msg",
+  "moonbitstack/moontls/tls",
 }
 
 // Values
@@ -34,15 +35,15 @@ pub let min_datagram : Int32
 
 pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
 
-pub fn recv_long(Bytes, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn recv_short(Bytes, Int32, @crypto.Keys) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes) -> Bytes
+pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
 
-pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
+pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
 
-pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
+pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, suite? : @crypto.Suite) -> Bytes
 
 pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 
@@ -59,6 +60,8 @@ pub(all) struct Config {
   initial_max_data : UInt64
   initial_max_stream_data : UInt64
   max_frame : UInt64
+  streams_bidi : UInt64
+  streams_uni : UInt64
 }
 pub fn Config::default() -> Self
 
@@ -84,6 +87,7 @@ pub fn Conn::space(Self, Level) -> @packet.Space
 pub struct Endpoint[A] {
   conns : Map[Bytes, Session[A]]
   cfg : Config
+  // private fields
 }
 pub fn[A] Endpoint::close(Self[A], Bytes, UInt64, Bytes, Int64) -> Unit
 pub fn[A] Endpoint::conn(Self[A], Bytes) -> Session[A]?
@@ -92,7 +96,20 @@ pub fn[A] Endpoint::count(Self[A]) -> Int32
 pub fn[A] Endpoint::new(Config) -> Self[A]
 pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
 pub fn[A] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
+pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes) -> Self[A]
+pub fn[A] Endpoint::take_busy(Self[A]) -> Array[Session[A]]
 pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
+
+pub(all) enum Event {
+  Connected
+  Readable(UInt64)
+  Reset(UInt64, UInt64)
+  Stopped(UInt64, UInt64)
+  Closed(UInt64)
+} derive(Eq, @debug.Debug)
+pub fn Event::equal(Self, Self) -> Bool
+pub fn Event::not_equal(Self, Self) -> Bool
+pub fn Event::to_repr(Self) -> @debug.Repr
 
 pub(all) enum Kind {
   OriginalDcid
@@ -176,24 +193,28 @@ pub fn Phase::to_repr(Self) -> @debug.Repr
 pub struct Sender {
   sched : @stream.Scheduler
   recovery : @recovery.State
-  data : Map[UInt64, Bytes]
-  in_packet : Map[Int64, Array[@stream.Chunk]]
-  retransmit : Array[@stream.Chunk]
   mut next_pn : Int64
+  mut ack_exponent : Int32
+  // private fields
 }
+pub fn Sender::abandon(Self, UInt64, UInt64) -> Unit
 pub fn Sender::advance_past(Self, Int64) -> Unit
+pub fn Sender::buffered(Self, UInt64) -> UInt64
 pub fn Sender::new(UInt64, UInt64, Int64, Int64, Int64, UInt64) -> Self
 pub fn Sender::on_ack(Self, @frame.Frame, Int64) -> Unit raise
 pub fn Sender::on_max_data(Self, UInt64) -> Unit
+pub fn Sender::on_max_stream_data(Self, UInt64, UInt64) -> Unit
 pub fn Sender::on_pto_timeout(Self, Int64) -> Bool
 pub fn Sender::outstanding(Self) -> Array[Int64]
 pub fn Sender::poll_send(Self, Int64) -> (Int64, Array[@frame.Frame])? raise
+pub fn Sender::queue_control(Self, @frame.Frame) -> Unit
 pub fn Sender::queue_fin(Self, UInt64) -> Unit
 pub fn Sender::queue_stream(Self, UInt64, Bytes) -> Unit
 pub fn Sender::window(Self) -> Int64
 
 pub struct Server {
   initial_keys : @crypto.Keys
+  reply_keys : @crypto.Keys
   handshake : @hs.Handshake
   conn : Conn
 }
@@ -234,27 +255,40 @@ pub struct Session[A] {
   mut hs_tx : @crypto.Keys?
   mut app_rx : @crypto.Keys?
   mut app_tx : @crypto.Keys?
+  streams : @stream.Streams
+  // private fields
 }
+pub fn[A] Session::alpn(Self[A]) -> String?
 pub fn[A] Session::apply_peer_params(Self[A], Array[Param]) -> Unit
+pub fn[A] Session::buffered(Self[A], UInt64) -> UInt64
 pub fn[A] Session::can_send(Self[A], Int32) -> Bool
 pub fn[A] Session::cid(Self[A]) -> Bytes
-pub fn[A] Session::close(Self[A], UInt64, Bytes, Int64) -> Unit
+pub fn[A] Session::close(Self[A], UInt64, Bytes, Int64, application? : Bool) -> Unit
 pub fn[A] Session::core(Self[A]) -> Server
+pub fn[A] Session::finished(Self[A], UInt64) -> Bool
 pub fn[A] Session::idle_timeout(Self[A]) -> Int64
 pub fn[A] Session::install_app_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
+pub fn[A] Session::open_uni(Self[A]) -> UInt64
 pub fn[A] Session::packets_received(Self[A]) -> Int32
 pub fn[A] Session::peer(Self[A]) -> A
 pub fn[A] Session::pending(Self[A]) -> Int32
 pub fn[A] Session::phase(Self[A]) -> Phase
 pub fn[A] Session::queue_stream(Self[A], UInt64, Bytes) -> Unit
+pub fn[A] Session::read(Self[A], UInt64) -> Bytes
+pub fn[A] Session::release(Self[A], UInt64) -> Unit
+pub fn[A] Session::reset(Self[A], UInt64, UInt64) -> Unit
 pub fn[A] Session::rx_bytes(Self[A]) -> Int64
 pub fn[A] Session::send(Self[A], Level, Array[@frame.Frame]) -> Unit
 pub fn[A] Session::send_level(Self[A]) -> Level
+pub fn[A] Session::server_name(Self[A]) -> String?
+pub fn[A] Session::stop(Self[A], UInt64, UInt64) -> Unit
+pub fn[A] Session::take_events(Self[A]) -> Array[Event]
 pub fn[A] Session::take_received(Self[A]) -> Array[(Level, @frame.Frame)]
 pub fn[A] Session::tx_bytes(Self[A]) -> Int64
 pub fn[A] Session::validated(Self[A]) -> Bool
+pub fn[A] Session::write(Self[A], UInt64, Bytes, fin? : Bool) -> Unit
 
 // Type aliases
 

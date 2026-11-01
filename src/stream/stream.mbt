@@ -389,14 +389,20 @@ pub fn Quota::grant(self : Quota, limit : UInt64) -> Unit {
 pub struct Budget {
   connection : Credit
   streams : Map[UInt64, Credit]
-  initial : UInt64
+  mut initial : UInt64
+  mut uni : UInt64
 }
 
 ///|
 /// A budget at the peer's initial connection-wide and per-stream maxima, which come from
 /// its transport parameters (RFC 9000 §18.2).
 pub fn Budget::new(data : UInt64, stream_data : UInt64) -> Budget {
-  { connection: Credit::new(data), streams: Map([]), initial: stream_data, }
+  {
+    connection: Credit::new(data),
+    streams: Map([]),
+    initial: stream_data,
+    uni: stream_data,
+  }
 }
 
 ///|
@@ -405,7 +411,7 @@ pub fn Budget::stream(self : Budget, id : UInt64) -> Credit {
   match self.streams.get(id) {
     Some(c) => c
     None => {
-      let c = Credit::new(self.initial)
+      let c = Credit::new(if is_bidi(id) { self.initial } else { self.uni })
       self.streams[id] = c
       c
     }
@@ -668,6 +674,10 @@ pub struct Streams {
   bidi : Quota
   uni : Quota
   server : Bool
+  bidi_size : UInt64
+  uni_size : UInt64
+  mut bidi_closed : UInt64
+  mut uni_closed : UInt64
 }
 
 ///|
@@ -685,20 +695,26 @@ pub fn Streams::new(
   bidi? : Quota,
   uni? : Quota,
 ) -> Streams {
+  let bidi = match bidi {
+    Some(q) => q
+    None => Quota::new(100)
+  }
+  let uni = match uni {
+    Some(q) => q
+    None => Quota::new(100)
+  }
   {
     streams: Map([]),
     connection: Window::new(data),
     charged: 0,
     size: stream_data,
-    bidi: match bidi {
-      Some(q) => q
-      None => Quota::new(100)
-    },
-    uni: match uni {
-      Some(q) => q
-      None => Quota::new(100)
-    },
+    bidi,
+    uni,
     server,
+    bidi_size: bidi.limit,
+    uni_size: uni.limit,
+    bidi_closed: 0,
+    uni_closed: 0,
   }
 }
 
@@ -715,12 +731,27 @@ pub fn Streams::on_stream(
   data : Bytes,
   fin~ : Bool,
 ) -> Bytes raise Refused {
+  self.accept(id, offset, data, fin~)
+  self.read(id)
+}
+
+///|
+/// Take a STREAM frame and hold its bytes until `read` asks for them, so that flow-control credit
+/// comes back only as the application consumes. Frames for a stream already released are
+/// retransmissions, and are dropped.
+pub fn Streams::accept(
+  self : Streams,
+  id : UInt64,
+  offset : UInt64,
+  data : Bytes,
+  fin~ : Bool,
+) -> Unit raise Refused {
   if !is_local(id, server=self.server) {
-    if is_bidi(id) {
-      self.bidi.open(id)
-    } else {
-      self.uni.open(id)
+    let quota = if is_bidi(id) { self.bidi } else { self.uni }
+    if sequence(id) < quota.opened && !self.streams.contains(id) {
+      return
     }
+    quota.open(id)
   }
   let s = self.open(id)
   let high = offset + data.length().to_uint64()
@@ -733,9 +764,66 @@ pub fn Streams::on_stream(
   }
   self.connection.arrived(self.charged)
   s.assembler.insert(offset, data, fin~)
-  let out = s.assembler.read()
-  self.take(s, out.length().to_uint64())
-  out
+}
+
+///|
+/// The peer abandoned stream `id` at `final_size` (RFC 9000 §3.2): what it would have sent still
+/// counts against the connection, and what is buffered is dropped.
+pub fn Streams::on_reset(
+  self : Streams,
+  id : UInt64,
+  final_size : UInt64,
+) -> Unit raise Refused {
+  guard self.streams.get(id) is Some(s) else { return }
+  if final_size < s.highest {
+    raise Conflict("RESET_STREAM below the data already received")
+  }
+  if s.assembler.final_size() is Some(known) && known != final_size {
+    raise Conflict("RESET_STREAM moved the final size")
+  }
+  self.charged = self.charged + (final_size - s.highest)
+  s.highest = final_size
+  self.connection.arrived(self.charged)
+  let buffered = s.assembler.read()
+  self.take(s, buffered.length().to_uint64())
+  self.connection.consume(final_size - s.window.consumed())
+}
+
+///|
+/// Whether stream `id` has ended and all of it has been read.
+pub fn Streams::finished(self : Streams, id : UInt64) -> Bool {
+  match self.streams.get(id) {
+    Some(s) => s.assembler.complete()
+    None => true
+  }
+}
+
+///|
+/// Forget stream `id`; a stream the peer opened gives its slot back for `max_streams` to offer.
+pub fn Streams::release(self : Streams, id : UInt64) -> Unit {
+  guard self.streams.contains(id) else { return }
+  self.streams.remove(id)
+  if !is_local(id, server=self.server) {
+    if is_bidi(id) {
+      self.bidi_closed = self.bidi_closed + 1
+    } else {
+      self.uni_closed = self.uni_closed + 1
+    }
+  }
+}
+
+///|
+/// The new MAX_STREAMS to advertise, or `None` when less than half the slots have come back.
+pub fn Streams::max_streams(self : Streams, bidi~ : Bool) -> UInt64? {
+  let (quota, size, closed) = if bidi {
+    (self.bidi, self.bidi_size, self.bidi_closed)
+  } else {
+    (self.uni, self.uni_size, self.uni_closed)
+  }
+  let want = closed + size
+  guard want >= quota.limit + size / 2UL else { return None }
+  quota.grant(want)
+  Some(want)
 }
 
 ///|
@@ -803,7 +891,8 @@ pub fn Streams::max_data(self : Streams) -> UInt64? {
 ///|
 /// The new MAX_STREAM_DATA to advertise on `id`, or `None`.
 pub fn Streams::max_stream_data(self : Streams, id : UInt64) -> UInt64? {
-  let w = self.open(id).window
+  guard self.streams.get(id) is Some(s) else { return None }
+  let w = s.window
   if w.should_grant() {
     Some(w.grant())
   } else {
@@ -858,6 +947,41 @@ pub fn Scheduler::new(budget : Budget, frame~ : UInt64 = frame) -> Scheduler {
 
 ///|
 /// Queue `n` more bytes to send on stream `id`.
+/// Apply the peer's transport parameters (RFC 9000 §18.2): the connection's limit, and what a new
+/// stream starts with by kind.
+pub fn Scheduler::on_params(
+  self : Scheduler,
+  data~ : UInt64,
+  bidi~ : UInt64,
+  uni~ : UInt64,
+) -> Unit {
+  self.budget.on_max_data(data)
+  self.budget.initial = bidi
+  self.budget.uni = uni
+}
+
+///|
+/// Drop stream `id`: nothing more of it is scheduled.
+pub fn Scheduler::cancel(self : Scheduler, id : UInt64) -> Unit {
+  guard self.streams.contains(id) else { return }
+  self.streams.remove(id)
+  self.retire(id)
+}
+
+///|
+fn Scheduler::retire(self : Scheduler, id : UInt64) -> Unit {
+  guard self.order.search(id) is Some(at) else { return }
+  self.order.remove(at) |> ignore
+  self.streams.remove(id)
+  if self.cursor > at {
+    self.cursor = self.cursor - 1
+  }
+  if self.cursor >= self.order.length() {
+    self.cursor = 0
+  }
+}
+
+///|
 pub fn Scheduler::queue(self : Scheduler, id : UInt64, n : UInt64) -> Unit {
   self.ensure(id).pending += n
 }
@@ -926,11 +1050,15 @@ pub fn Scheduler::next(self : Scheduler) -> Chunk? raise Refused {
         out.fin_sent = true
       }
       self.cursor = (at + 1) % n
+      if last {
+        self.retire(id)
+      }
       return Some(chunk)
     }
     if out.pending == 0UL && out.fin_queued && !out.fin_sent {
       out.fin_sent = true
       self.cursor = (at + 1) % n
+      self.retire(id)
       return Some({ stream: id, offset: out.offset, length: 0UL, fin: true, })
     }
   }

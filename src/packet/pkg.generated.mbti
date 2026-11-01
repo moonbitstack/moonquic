@@ -95,10 +95,12 @@ pub fn Space::ack_pending(Self) -> Bool
 pub fn Space::advance_past(Self, Int64) -> Unit
 pub fn Space::build_ack(Self, UInt64) -> @frame.Frame?
 pub fn Space::largest_acked(Self) -> Int64?
+pub fn Space::largest_received(Self) -> Int64
 pub fn Space::new() -> Self
 pub fn Space::next_packet_number(Self) -> Int64
 pub fn Space::on_ack_received(Self, Int64) -> Unit
 pub fn Space::on_packet_received(Self, Int64, Bool) -> Unit
+pub fn Space::seen(Self, Int64) -> Bool
 
 pub(all) struct Tail {
   token : Bytes

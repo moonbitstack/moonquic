@@ -20,5 +20,11 @@ import {
   "moonbitstack/moontls/ext",
   "moonbitstack/moontls/hs",
   "moonbitstack/moontls/alert",
+  "moonbitstack/moontls/record",
+  "moonbitstack/moontls/tls",
   "moonbitstack/mooncrypt/spec",
 }
+
+import {
+  "moonbitstack/mooncred/x509",
+} for "wbtest"
