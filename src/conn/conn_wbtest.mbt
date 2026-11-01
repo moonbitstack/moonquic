@@ -398,9 +398,11 @@ test "server conn: send_server_hello produces a ServerHello the client can decod
   assert_eq(server.handshake_state(), RecvdClientHello)
   // The server builds and protects its ServerHello.
   let sh = @msg.Server::{
+    version: 0x0303,
     random: Bytes::make(32, b'\xab'),
     session_id: b"",
     suite: 0x1301,
+    compression: 0,
     extensions: [],
   }
   let sh_packet = server.send_server_hello(sh, b"", b"\x01\x02\x03\x04", 0)
@@ -451,9 +453,11 @@ test "server conn: send_handshake_flight emits EE/Cert/CertVerify/Finished the c
   )
   let _ = server.receive_initial(ch_packet)
   let sh = @msg.Server::{
+    version: 0x0303,
     random: Bytes::make(32, b'\xcd'),
     session_id: b"",
     suite: 0x1301,
+    compression: 0,
     extensions: [],
   }
   let _ = server.send_server_hello(sh, b"", b"\x0a\x0b\x0c\x0d", 0)
@@ -538,9 +542,11 @@ test "server conn: receive_handshake verifies the client Finished and reaches CO
   )
   let _ = server.receive_initial(ch_packet)
   let sh = @msg.Server::{
+    version: 0x0303,
     random: Bytes::make(32, b'\xcd'),
     session_id: b"",
     suite: 0x1301,
+    compression: 0,
     extensions: [],
   }
   let _ = server.send_server_hello(sh, b"", b"\x0a\x0b\x0c\x0d", 0)
@@ -617,9 +623,11 @@ test "server conn: receive_handshake rejects a Finished with the wrong verify_da
   )
   let _ = server.receive_initial(ch_packet)
   let sh = @msg.Server::{
+    version: 0x0303,
     random: Bytes::make(32, b'\xcd'),
     session_id: b"",
     suite: 0x1301,
+    compression: 0,
     extensions: [],
   }
   let _ = server.send_server_hello(sh, b"", b"\x0a\x0b\x0c\x0d", 0)
