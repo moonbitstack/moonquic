@@ -19,6 +19,8 @@ import {
 // Values
 pub let amplification : Int64
 
+pub let cid_size : Int32
+
 pub fn decode(BytesView) -> Array[Param]?
 
 pub fn encode(ArrayView[Param]) -> Bytes
@@ -96,7 +98,7 @@ pub fn[A] Endpoint::count(Self[A]) -> Int32
 pub fn[A] Endpoint::new(Config) -> Self[A]
 pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
 pub fn[A] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
-pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes) -> Self[A]
+pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes, cid? : () -> Bytes) -> Self[A]
 pub fn[A] Endpoint::take_busy(Self[A]) -> Array[Session[A]]
 pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
 

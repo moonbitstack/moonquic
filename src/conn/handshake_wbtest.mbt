@@ -716,3 +716,29 @@ test "abandoning a stream resets it and drops what was queued" {
   assert_eq(frames, [ResetStream(id=0UL, error_code=7UL, final_size=8UL)])
   assert_eq(s.poll_send(1000L), None)
 }
+
+///|
+test "the ids a server issues come from its own source, and the client addresses it by one" {
+  let made = Ref(0)
+  let server : Endpoint[String] = Endpoint::server(
+    Config::default(),
+    tls_server(),
+    rand=fake_rand(99),
+    cid=() => {
+      made.val = made.val + 1
+      // A wrong size first: the source is asked again rather than trusted.
+      if made.val == 1 {
+        b"\x07"
+      } else {
+        b"\x07\x00\x00\x00\x00\x00\x00" + Bytes::make(1, made.val.to_byte())
+      }
+    },
+  )
+  let client = Peer::new()
+  connect(client, server)
+  let conn = only_conn(server)
+  assert_eq(conn.cid().length(), cid_size)
+  assert_eq(conn.cid()[0], b'\x07')
+  assert_eq(client.dcid, conn.cid())
+  assert_eq(made.val, 2)
+}

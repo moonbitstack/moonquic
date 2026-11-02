@@ -66,6 +66,8 @@ while server.poll_out(now) is Some((datagram, to)) {
 
 A stream's credit goes back to the peer as `read` takes its bytes, so a slow application slows its peer down. `buffered` says how much written data is still unacknowledged, which is what a writer paces itself by.
 
+The connection ids the server issues are `cid_size` bytes drawn from `rand`. Several processes behind one port, or a load balancer that routes on the id, pass `cid` to make them: `cid=() => b"" + entropy(cid_size - 1)` puts the number 2 where a router can read it from every datagram that follows.
+
 ## Everything the protocol leaves open is a parameter
 
 The cipher suite is a record with a public preset:

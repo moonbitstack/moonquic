@@ -10,6 +10,7 @@ pub struct Endpoint[A] {
   cfg : Config
   priv tls : @tls.Server?
   priv rand : (Int32) -> Bytes
+  priv issue : () -> Bytes
   priv aliases : Map[Bytes, Bytes]
   priv stateless : Array[(Bytes, A)]
   priv busy : Array[Session[A]]
@@ -18,7 +19,7 @@ pub struct Endpoint[A] {
 ///|
 /// How long a connection id this server issues is. A fixed length is what lets a short header,
 /// which does not say how long its id is, be read at all (RFC 9000 §5.2).
-let cid_size : Int32 = 8
+pub let cid_size : Int32 = 8
 
 ///|
 /// A server holding no connections, handing `cfg` to each one it opens.
@@ -28,6 +29,7 @@ pub fn[A] Endpoint::new(cfg : Config) -> Endpoint[A] {
     cfg,
     tls: None,
     rand: n => Bytes::make(n, 0),
+    issue: () => Bytes::make(cid_size, 0),
     aliases: Map([]),
     stateless: [],
     busy: [],
@@ -36,17 +38,27 @@ pub fn[A] Endpoint::new(cfg : Config) -> Endpoint[A] {
 
 ///|
 /// A server that runs the TLS handshake itself: `tls` holds its certificate chain, key and ALPN
-/// protocols, and `rand` is the source of its connection ids and handshake randomness.
+/// protocols, and `rand` is the source of its handshake randomness.
+///
+/// `cid` makes the connection ids this server issues, `cid_size` bytes each; by default they are
+/// drawn from `rand`. A server behind something that routes datagrams by connection id (several
+/// processes on one port, or a load balancer in the manner of QUIC-LB) puts its own number in
+/// them here. An id that is not `cid_size` bytes, or that is already in use, is drawn again.
 pub fn[A] Endpoint::server(
   cfg : Config,
   tls : @tls.Server,
   rand~ : (Int32) -> Bytes,
+  cid? : () -> Bytes,
 ) -> Endpoint[A] {
   {
     conns: Map([]),
     cfg,
     tls: Some(tls),
     rand,
+    issue: match cid {
+      Some(f) => f
+      None => () => rand(cid_size)
+    },
     aliases: Map([]),
     stateless: [],
     busy: [],
@@ -86,7 +98,7 @@ fn[A] Endpoint::open(
       // RFC 9000 §14.1: a client's first datagram is at least this big, which is what keeps a
       // spoofed Initial from buying more than it costs.
       guard size >= min_datagram else { return None }
-      let cid = (self.rand)(cid_size)
+      let cid = self.fresh_cid()
       let tls = @tls.Conn::quic_server(
         config,
         params=declared(self.cfg, h.dcid, cid),
@@ -106,6 +118,20 @@ fn[A] Endpoint::open(
       Some(c)
     }
   }
+}
+
+///|
+/// An id for a new connection: the size a short header is read with, and not one already held.
+fn[A] Endpoint::fresh_cid(self : Endpoint[A]) -> Bytes {
+  for _ in 0..<16 {
+    let cid = (self.issue)()
+    if cid.length() == cid_size &&
+      !self.conns.contains(cid) &&
+      !self.aliases.contains(cid) {
+      return cid
+    }
+  }
+  abort("the connection id source keeps giving ids that cannot be used")
 }
 
 ///|

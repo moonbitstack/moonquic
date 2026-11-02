@@ -1,6 +1,6 @@
 name = "moonbitstack/moonquic"
 
-version = "0.3.8"
+version = "0.3.9"
 
 readme = "README.md"
 
