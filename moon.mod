@@ -1,6 +1,6 @@
 name = "moonbitstack/moonquic"
 
-version = "0.3.9"
+version = "0.3.10"
 
 readme = "README.md"
 
@@ -8,7 +8,23 @@ repository = "https://github.com/moonbitstack/moonquic"
 
 license = "Apache-2.0"
 
-keywords = [ "quic", "rfc9000", "rfc9001", "transport", "moonbit" ]
+keywords = [
+  "quic",
+  "quic-transport",
+  "transport",
+  "udp",
+  "http3",
+  "rfc9000",
+  "rfc9001",
+  "rfc9002",
+  "congestion-control",
+  "newreno",
+  "loss-recovery",
+  "tls13",
+  "retry",
+  "version-negotiation",
+  "moonbit",
+]
 
 description = "QUIC transport for MoonBit."
 
