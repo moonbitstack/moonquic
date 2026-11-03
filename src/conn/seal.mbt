@@ -84,6 +84,21 @@ pub fn send_short(
 }
 
 ///|
+/// A protected 0-RTT packet carrying `frames` (RFC 9001 §5.2): a long header of the 0-RTT
+/// type, no Initial token, the client's early keys, and the Application packet-number space.
+pub fn send_zero_rtt(
+  dcid : Bytes,
+  scid : Bytes,
+  number : Int64,
+  size : Int32,
+  frames : Array[@frame.Frame],
+  keys : @crypto.Keys,
+  suite~ : @crypto.Suite = @crypto.suite,
+) -> Bytes {
+  send_long(ZeroRtt, 1U, dcid, scid, number, size, frames, keys, suite~)
+}
+
+///|
 /// The frames a protected long-header packet carries, and its packet number, expanded against
 /// `largest`, the largest number received in its space. `None` when the tag does not match,
 /// which is a packet to drop rather than an error to report.

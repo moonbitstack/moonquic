@@ -42,6 +42,8 @@ pub fn update(BytesView, suite? : Suite, version? : Version) -> Bytes
 
 pub let version : Version
 
+pub fn zero_rtt(BytesView, suite? : Suite, version? : Version) -> Keys
+
 // Errors
 
 // Types and methods

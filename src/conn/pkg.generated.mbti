@@ -21,7 +21,7 @@ pub let amplification : Int64
 
 pub let cid_size : Int32
 
-pub fn decode(BytesView) -> Array[Param]?
+pub fn decode(BytesView) -> Array[Param] raise Refused
 
 pub fn encode(ArrayView[Param]) -> Bytes
 
@@ -51,11 +51,22 @@ pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.
 
 pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, suite? : @crypto.Suite) -> Bytes
 
+pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, suite? : @crypto.Suite) -> Bytes
+
 pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 
 pub fn stateless_reset(Bytes, (Int32) -> Bytes, min? : Int32) -> Bytes
 
 // Errors
+#derive(Eq)
+pub(all) suberror Refused {
+  Malformed(String)
+}
+pub fn Refused::equal(Self, Self) -> Bool
+pub fn Refused::not_equal(Self, Self) -> Bool
+pub fn Refused::output(Self, &Logger) -> Unit
+pub fn Refused::to_string(Self) -> String
+pub impl Show for Refused
 
 // Types and methods
 pub struct Client {
@@ -74,15 +85,34 @@ pub struct Client {
   out : Array[(Level, Int64, Bytes)]
   mut seen_server_cid : Bool
   received : Array[@frame.Frame]
+  sender : Sender
+  streams : @stream.Streams
+  events : Array[Event]
+  datagrams : Array[Bytes]
+  key_phase : Bool
+  mut next_uni : UInt64
+  mut zero_rtt_tx : @crypto.Keys?
+  zero_frames : Array[@frame.Frame]
 }
 pub fn Client::alpn(Self) -> String?
+pub fn Client::buffered(Self, UInt64) -> UInt64
+pub fn Client::early_accepted(Self) -> Bool
+pub fn Client::finished(Self, UInt64) -> Bool
 pub fn Client::frames(Self) -> Array[@frame.Frame]
+pub fn Client::install_zero_rtt(Self, @crypto.Keys) -> Unit
 pub fn Client::is_connected(Self) -> Bool
-pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64) -> Self raise
+pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config) -> Self raise
+pub fn Client::open_uni(Self) -> UInt64
 pub fn Client::poll_out(Self, Int64) -> Array[Bytes]
+pub fn Client::read(Self, UInt64) -> Bytes
 pub fn Client::recv(Self, Bytes, Int64) -> Unit raise
+pub fn Client::send_datagram(Self, Bytes) -> Bool
+pub fn Client::send_zero_rtt(Self, Array[@frame.Frame]) -> Bool
 pub fn Client::server_cid(Self) -> Bytes
 pub fn Client::suite_code(Self) -> Int32
+pub fn Client::take_datagrams(Self) -> Array[Bytes]
+pub fn Client::take_events(Self) -> Array[Event]
+pub fn Client::write(Self, UInt64, Bytes, fin? : Bool) -> Unit
 
 pub(all) struct Config {
   version : UInt32
@@ -316,6 +346,7 @@ pub struct Session[A] {
   mut app_tx : @crypto.Keys?
   streams : @stream.Streams
   path : Path
+  mut zero_rtt_rx : @crypto.Keys?
   // private fields
 }
 pub fn[A] Session::alpn(Self[A]) -> String?
@@ -329,6 +360,7 @@ pub fn[A] Session::finished(Self[A], UInt64) -> Bool
 pub fn[A] Session::idle_timeout(Self[A]) -> Int64
 pub fn[A] Session::install_app_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
+pub fn[A] Session::install_zero_rtt(Self[A], @crypto.Keys) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
 pub fn[A] Session::open_uni(Self[A]) -> UInt64
 pub fn[A] Session::packets_received(Self[A]) -> Int32

@@ -263,6 +263,18 @@ pub fn application(
 }
 
 ///|
+/// A 0-RTT packet's keys from the client's early traffic secret (RFC 9001 §5.2). The early
+/// secret is TLS's to derive; expanding it into key, IV and header-protection key is the same
+/// as for any other traffic secret.
+pub fn zero_rtt(
+  secret : BytesView,
+  suite~ : Suite = suite,
+  version~ : Version = version,
+) -> Keys {
+  Keys::of(secret, suite~, version~)
+}
+
+///|
 /// The next generation's 1-RTT traffic secret (RFC 9001 §6.1). Applying it again
 /// advances another generation; the Key Phase bit in the short header says which
 /// generation protects a packet.

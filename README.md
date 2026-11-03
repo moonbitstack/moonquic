@@ -31,7 +31,7 @@ moon run src/examples/04-crypto     moon run src/examples/07-recovery
 | `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update | **0.1.0** |
 | `recovery` | [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) the round-trip estimate, both loss thresholds, the probe timeout, and NewReno, CUBIC ([RFC 9438](https://www.rfc-editor.org/rfc/rfc9438)) and BBR behind one controller trait, with persistent congestion | **0.1.0** |
 | `stream` | [§2](https://www.rfc-editor.org/rfc/rfc9000#section-2) stream IDs and reassembly, [§3](https://www.rfc-editor.org/rfc/rfc9000#section-3) both state machines, [§4](https://www.rfc-editor.org/rfc/rfc9000#section-4) data flow control and the stream quota, and a round-robin scheduler | **0.1.0** |
-| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, and [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams | **0.1.0** |
+| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams, and 0-RTT packets | **0.1.0** |
 
 `frame` and `packet` are pure codecs over [`moonvar/quic`](https://github.com/moonbitstack/moonvar), so a tool that only wants to read packets off a capture links nothing else — the variable-length integer went to a library of its own, because QUIC is not the only thing that writes one.
 
@@ -89,7 +89,18 @@ for datagram in receive() {
 }
 ```
 
-`alpn` and `suite_code` say what the handshake settled on once it is done, and `server_cid` is the id the peer wants addressed.
+`alpn` and `suite_code` say what the handshake settled on once it is done, and `server_cid` is the id the peer wants addressed. Once it is connected the client carries streams: `write` and `read` are the same shape as the server's, and `take_events` says when a stream is readable.
+
+0-RTT rides the same client. Supply the early keys from a resumed session and queue frames; they go out in 0-RTT packets until the handshake finishes:
+
+```moonbit
+client.install_zero_rtt(@crypto.zero_rtt(early_secret[:]))
+client.send_zero_rtt([
+  @frame.Stream(id=0UL, offset=0UL, fin=false, data=request),
+])
+```
+
+On the server, `Session::install_zero_rtt` takes the same keys, after which a 0-RTT packet's frames are handled like any other. (`moontls`, the handshake, does not yet hand a QUIC client its early secret, so the caller derives it from the resumed session.)
 
 ## Datagrams
 
@@ -127,7 +138,7 @@ CUBIC follows a cubic function of the time since the last reduction and falls to
 
 Sockets, and anything that needs a clock of its own. The TLS handshake — that is `moontls`, whose key schedule RFC 9001 §5.2 reuses verbatim. HTTP/3 and QPACK — those are [`moonhttp`](https://github.com/moonbitstack/moonhttp)'s, because HTTP/3 is a version of HTTP and QPACK is to it what HPACK is to HTTP/2.
 
-Connection migration, path validation and stateless reset are here. 0-RTT is not: it needs early data and a ticket to resume, which the pinned `moontls` does not offer a client. The client handshake covers Initial and Handshake and installs the 1-RTT keys; streams over the client's 1-RTT path, a client `Endpoint` over many connections, and multipath are the next step.
+Connection migration, path validation and stateless reset are here, and so is the client's 1-RTT stream layer. 0-RTT packets are here too, but the pinned `moontls` does not hand a QUIC client its early traffic secret, so a caller supplies the keys from a resumed session; without them a 0-RTT packet is dropped. A client `Endpoint` over many connections, and multipath, are the next step.
 
 A signing key never enters this library. A server's handshake flight takes the CertificateVerify as a function of the transcript hash, so whoever holds the key builds the body at the one moment §4.4.3 says to sign — `@conn.signed(key)` is that function for a `@spec.Signer`.
 

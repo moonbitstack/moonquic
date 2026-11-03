@@ -48,6 +48,51 @@ test "the splitter runs a long CRYPTO stream across packets at their offsets" {
 }
 
 ///|
+test "the real post-quantum hello takes more than one Initial packet" {
+  let client = make_client()
+  let packets = client.poll_out(0L)
+  // The default hello now carries an X25519MLKEM768 share and is over a kilobyte.
+  assert_eq(packets.length() >= 2, true)
+  for packet in packets {
+    assert_eq(packet.length() <= 1200, true)
+    // Every one is a long header, not a 1-RTT packet.
+    assert_eq((packet[0].to_int() & 0x80) != 0, true)
+  }
+}
+
+///|
+test "streams run both ways over the client's 1-RTT path" {
+  let server = new_server()
+  let client = make_client()
+  for datagram in client.poll_out(1000L) {
+    server.recv(datagram, from, 1000L)
+  }
+  for datagram in drain(server, 1000L) {
+    client.recv(datagram, 1000L)
+  }
+  for datagram in client.poll_out(1000L) {
+    server.recv(datagram, from, 1000L)
+  }
+  assert_true(client.is_connected())
+  let conn = only_conn(server)
+  conn.take_events() |> ignore
+  // Client to server.
+  client.write(0UL, b"hello", fin=true)
+  for datagram in client.poll_out(2000L) {
+    server.recv(datagram, from, 2000L)
+  }
+  assert_eq(conn.take_events(), [Readable(0UL)])
+  assert_eq(conn.read(0UL), b"hello")
+  // Server to client.
+  conn.write(0UL, b"reply", fin=true)
+  for datagram in drain(server, 2000L) {
+    client.recv(datagram, 2000L)
+  }
+  assert_eq(client.take_events().contains(Readable(0UL)), true)
+  assert_eq(client.read(0UL), b"reply")
+}
+
+///|
 test "a first flight larger than a datagram splits into several Initial packets" {
   let client = make_client()
   // Stand in for the post-quantum hello: 1600 bytes of CRYPTO, past one packet.

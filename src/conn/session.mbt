@@ -12,8 +12,8 @@
 // address is a type parameter and every entry point takes `now`, so the tests drive it with a
 // fake sink on an injected clock and `quic_serve.native.mbt` drives it with a UDP socket.
 //
-// Path validation and migration (§9), stateless reset (§10.3) and coalesced packets (§12.2)
-// are here; 0-RTT is not.
+// Path validation and migration (§9), stateless reset (§10.3), 0-RTT packets (§12.5) and
+// coalesced packets (§12.2) are here.
 
 ///|
 /// Where a connection is in its lifecycle (RFC 9000 §10.2): exchanging packets, closing —
@@ -175,6 +175,7 @@ pub struct Session[A] {
   priv mut confirmed : Bool
   priv mut next_uni : UInt64
   path : Path
+  mut zero_rtt_rx : @crypto.Keys?
 }
 
 ///|
@@ -251,6 +252,7 @@ fn[A] Session::new(
     confirmed: false,
     next_uni: 0UL,
     path: Path::new(),
+    zero_rtt_rx: None,
   }
 }
 
@@ -358,6 +360,16 @@ pub fn[A] Session::install_app_keys(
   self.app_rx_secret = client_secret
   self.app_tx = Some(@crypto.Keys::of(server_secret[:], suite=self.suite))
   self.app_tx_secret = server_secret
+}
+
+///|
+/// Install the server's 0-RTT (early) keys (RFC 9001 §5.2), from the early traffic secret the
+/// handshake resumed a ticket for. Until they are installed, a 0-RTT packet is dropped.
+pub fn[A] Session::install_zero_rtt(
+  self : Session[A],
+  keys : @crypto.Keys,
+) -> Unit {
+  self.zero_rtt_rx = Some(keys)
 }
 
 ///|
@@ -610,7 +622,8 @@ fn[A : Eq] Session::on_datagram(
     match h.packet_type {
       @packet.Kind::Initial => self.on_initial(packet, now)
       @packet.Kind::Handshake => self.on_handshake(packet, now)
-      // 0-RTT is not served, and a client sends no Retry.
+      @packet.Kind::ZeroRtt => self.on_zero_rtt(packet, now)
+      // A server sends no Retry to itself.
       _ => ()
     }
   }
@@ -680,6 +693,35 @@ fn[A] Session::on_handshake(
     }
   }
   self.on_frames(Level::Handshake, frames, now)
+}
+
+///|
+/// A 0-RTT packet: open it under the early keys and act on its frames. A 0-RTT packet shares
+/// the Application packet-number space, and a STREAM frame in it is application data on that
+/// stream (RFC 9000 §12.5). A packet that does not open is dropped, as any other is.
+fn[A] Session::on_zero_rtt(
+  self : Session[A],
+  packet : Bytes,
+  now : Int64,
+) -> Unit raise {
+  guard self.zero_rtt_rx is Some(keys) else { return }
+  let space = self.core.conn.space(Level::Application)
+  let opened = recv_long(
+    packet,
+    keys,
+    largest=space.largest_received(),
+    suite=self.suite,
+  ) catch {
+    _ => None
+  }
+  guard opened is Some((frames, pn)) else { return }
+  guard !space.seen(pn) else { return }
+  self.core.conn.on_packet_received(
+    Level::Application,
+    pn,
+    @packet.payload_elicits_ack(frames),
+  )
+  self.on_frames(Level::Application, frames, now)
 }
 
 ///|

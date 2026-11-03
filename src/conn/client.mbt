@@ -34,6 +34,16 @@ pub struct Client {
   out : Array[(Level, Int64, Bytes)]
   mut seen_server_cid : Bool
   received : Array[@frame.Frame]
+  /// 1-RTT: the send loop, the receiving streams, and what the application is told.
+  sender : Sender
+  streams : @stream.Streams
+  events : Array[Event]
+  datagrams : Array[Bytes]
+  key_phase : Bool
+  mut next_uni : UInt64
+  /// The early keys a caller supplied for 0-RTT, and the frames waiting to go under them.
+  mut zero_rtt_tx : @crypto.Keys?
+  zero_frames : Array[@frame.Frame]
 }
 
 ///|
@@ -83,6 +93,7 @@ pub fn Client::new(
   dcid : Bytes,
   scid : Bytes,
   now : Int64,
+  cfg~ : Config = Config::default(),
 ) -> Client raise {
   let tls = @tls.Conn::quic_client(config, server_name, params~, rand~, now~)
   let (tx, rx) = @crypto.initial(dcid[:])
@@ -102,6 +113,27 @@ pub fn Client::new(
     out: [],
     seen_server_cid: false,
     received: [],
+    sender: Sender::new(
+      0UL,
+      0UL,
+      cfg.max_datagram,
+      cfg.max_ack_delay,
+      cfg.granularity,
+      cfg.max_frame,
+    ),
+    streams: @stream.Streams::new(
+      cfg.initial_max_data,
+      cfg.initial_max_stream_data,
+      server=false,
+      bidi=@stream.Quota::new(cfg.streams_bidi),
+      uni=@stream.Quota::new(cfg.streams_uni),
+    ),
+    events: [],
+    datagrams: [],
+    key_phase: false,
+    next_uni: 0UL,
+    zero_rtt_tx: None,
+    zero_frames: [],
   }
   client.absorb()
   client
@@ -140,6 +172,25 @@ fn Client::absorb(self : Client) -> Unit {
       }
     }
   }
+  self.adopt_peer_params()
+}
+
+///|
+/// Take the server's transport parameters once EncryptedExtensions has brought them: the
+/// flow-control credit that opens the send loop, and the largest datagram it will take.
+fn Client::adopt_peer_params(self : Client) -> Unit {
+  guard self.tls.peer_params() is Some(raw) else { return }
+  guard decode_opt(raw[:]) is Some(params) else { return }
+  let peer = Limits::read(params[:])
+  // A stream this client opens is "remote" from the server's side of the ledger.
+  self.sender.sched.on_params(
+    data=peer.data,
+    bidi=peer.stream_data_bidi_remote,
+    uni=peer.stream_data_uni,
+  )
+  self.sender.on_max_data(peer.data)
+  self.sender.on_peer_datagram(peer.datagram_frame)
+  self.sender.ack_exponent = peer.ack_delay_exponent.to_int()
 }
 
 ///|
@@ -201,7 +252,68 @@ pub fn Client::poll_out(self : Client, now : Int64) -> Array[Bytes] {
       }
     }
   }
+  // 0-RTT goes before the handshake finishes: the client's early keys, the Application space.
+  if self.zero_rtt_tx is Some(keys) &&
+    !self.tls.is_connected() &&
+    self.zero_frames.length() > 0 {
+    let frames = self.zero_frames.copy()
+    self.zero_frames.clear()
+    let pn = self.core.next_packet_number(Level::Application)
+    out.push(
+      send_zero_rtt(self.dcid, self.scid, pn, 4, frames, keys, suite=self.suite),
+    )
+  }
+  // 1-RTT: once the handshake is done, whatever the send loop has ready, with the ACK owed.
+  if self.tls.is_connected() {
+    while true {
+      let space = self.core.space(Level::Application)
+      let ack = if space.ack_pending() { space.build_ack(0UL) } else { None }
+      let next = self.sender.poll_send(now) catch { _ => None }
+      match next {
+        Some((pn, frames)) => {
+          space.advance_past(pn)
+          let all = match ack {
+            Some(a) => [a, ..frames]
+            None => frames
+          }
+          out.push(self.seal_app(pn, all))
+        }
+        None => {
+          match ack {
+            Some(a) => {
+              let pn = space.next_packet_number()
+              out.push(self.seal_app(pn, [a]))
+            }
+            None => ()
+          }
+          break
+        }
+      }
+    }
+  }
   out
+}
+
+///|
+/// A protected 1-RTT packet carrying `frames`.
+fn Client::seal_app(
+  self : Client,
+  pn : Int64,
+  frames : Array[@frame.Frame],
+) -> Bytes {
+  match self.app_tx {
+    Some(keys) =>
+      send_short(
+        self.dcid,
+        pn,
+        4,
+        frames,
+        keys,
+        key_phase=self.key_phase,
+        suite=self.suite,
+      )
+    None => b""
+  }
 }
 
 ///|
@@ -234,9 +346,7 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
         pn,
         @packet.payload_elicits_ack(frames),
       )
-      for frame in frames {
-        self.received.push(frame)
-      }
+      self.on_app_frames(frames, now)
       break
     }
     guard @packet.read_header(view) is Some((h, tail)) else { break }
@@ -326,7 +436,151 @@ pub fn Client::server_cid(self : Client) -> Bytes {
 }
 
 ///|
+/// Install the client's 0-RTT (early) keys (RFC 9001 §5.2). They are TLS's early traffic
+/// secret expanded by `@crypto.zero_rtt`; this library has no handshake of its own to derive
+/// one, so the caller supplies them.
+pub fn Client::install_zero_rtt(self : Client, keys : @crypto.Keys) -> Unit {
+  self.zero_rtt_tx = Some(keys)
+}
+
+///|
+/// Queue frames to go out in a 0-RTT packet (RFC 9000 §12.5): STREAM, MAX_*, or any frame
+/// 0-RTT permits. Answering when no early keys are installed, because there is nothing to
+/// protect them with.
+pub fn Client::send_zero_rtt(
+  self : Client,
+  frames : Array[@frame.Frame],
+) -> Bool {
+  guard self.zero_rtt_tx is Some(_) else { return false }
+  for frame in frames {
+    self.zero_frames.push(frame)
+  }
+  true
+}
+
+///|
+/// Whether the server accepted the early data this client offered.
+pub fn Client::early_accepted(self : Client) -> Bool {
+  self.tls.early_accepted()
+}
+
+///|
 /// The frames received so far, in order, for a caller reading the handshake's own traffic.
 pub fn Client::frames(self : Client) -> Array[@frame.Frame] {
   self.received.copy()
+}
+
+///|
+/// Act on a 1-RTT packet's frames: acknowledgements to the send loop, stream data into the
+/// reassembler, flow-control updates to the scheduler, and the rest to the application.
+fn Client::on_app_frames(
+  self : Client,
+  frames : Array[@frame.Frame],
+  now : Int64,
+) -> Unit raise {
+  for frame in frames {
+    self.received.push(frame)
+    match frame {
+      Ack(largest~, ..) | AckEcn(largest~, ..) => {
+        self.core.on_ack_received(
+          Level::Application,
+          largest.reinterpret_as_int64(),
+        )
+        self.sender.on_ack(frame, now)
+      }
+      Stream(id~, offset~, fin~, data~) => {
+        self.streams.accept(id, offset, data, fin~)
+        let event = Readable(id)
+        if self.streams.streams.contains(id) && !self.events.contains(event) {
+          self.events.push(event)
+        }
+      }
+      MaxData(v) => self.sender.on_max_data(v)
+      MaxStreamData(id~, max~) => self.sender.on_max_stream_data(id, max)
+      ResetStream(id~, error_code~, ..) =>
+        self.events.push(Reset(id, error_code))
+      StopSending(id~, error_code~) => self.events.push(Stopped(id, error_code))
+      PathChallenge(data) => self.sender.queue_control(PathResponse(data))
+      @frame.Datagram(data~) => {
+        self.datagrams.push(data)
+        if !self.events.contains(Event::Datagram) {
+          self.events.push(Event::Datagram)
+        }
+      }
+      ConnectionClose(error_code~, ..) => self.events.push(Closed(error_code))
+      _ => ()
+    }
+  }
+}
+
+///|
+/// Queue `data` on stream `id`, ending it after the data when `fin`.
+pub fn Client::write(
+  self : Client,
+  id : UInt64,
+  data : Bytes,
+  fin~ : Bool = false,
+) -> Unit {
+  self.sender.queue_stream(id, data)
+  if fin {
+    self.sender.queue_fin(id)
+  }
+}
+
+///|
+/// The bytes readable on stream `id` in order, emptied by the call; their flow-control credit
+/// goes back to the server here.
+pub fn Client::read(self : Client, id : UInt64) -> Bytes {
+  let data = self.streams.read(id)
+  if data.length() > 0 {
+    if self.streams.max_data() is Some(max) {
+      self.sender.queue_control(MaxData(max))
+    }
+    if self.streams.max_stream_data(id) is Some(max) {
+      self.sender.queue_control(MaxStreamData(id~, max~))
+    }
+  }
+  data
+}
+
+///|
+/// Whether stream `id` has ended and every byte of it has been read.
+pub fn Client::finished(self : Client, id : UInt64) -> Bool {
+  self.streams.finished(id)
+}
+
+///|
+/// A new unidirectional stream from this client (RFC 9000 §2.1).
+pub fn Client::open_uni(self : Client) -> UInt64 {
+  let id = self.next_uni * 4UL + 2UL
+  self.next_uni = self.next_uni + 1UL
+  id
+}
+
+///|
+/// How many bytes written to stream `id` the server has not acknowledged.
+pub fn Client::buffered(self : Client, id : UInt64) -> UInt64 {
+  self.sender.buffered(id)
+}
+
+///|
+/// What has happened on this connection since the last call, emptied by it.
+pub fn Client::take_events(self : Client) -> Array[Event] {
+  let out = self.events.copy()
+  self.events.clear()
+  out
+}
+
+///|
+/// Queue an unreliable datagram (RFC 9221), answering whether the server will take it.
+pub fn Client::send_datagram(self : Client, data : Bytes) -> Bool {
+  self.sender.queue_datagram(data)
+}
+
+///|
+/// The datagrams that arrived since the last call, emptied by it.
+pub fn Client::take_datagrams(self : Client) -> Array[Bytes] {
+  let out = self.datagrams.copy()
+  self.datagrams.clear()
+  out
 }
