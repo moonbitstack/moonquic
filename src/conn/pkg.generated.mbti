@@ -102,17 +102,19 @@ pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes, cid? :
 pub fn[A] Endpoint::take_busy(Self[A]) -> Array[Session[A]]
 pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Event {
   Connected
   Readable(UInt64)
   Reset(UInt64, UInt64)
   Stopped(UInt64, UInt64)
   Closed(UInt64)
-} derive(Eq, @debug.Debug)
+}
 pub fn Event::equal(Self, Self) -> Bool
 pub fn Event::not_equal(Self, Self) -> Bool
 pub fn Event::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Kind {
   OriginalDcid
   MaxIdleTimeout
@@ -133,7 +135,7 @@ pub(all) enum Kind {
   RetryScid
   MaxDatagramFrameSize
   Other(UInt64)
-} derive(Eq, @debug.Debug)
+}
 pub fn Kind::code(Self) -> UInt64
 pub fn Kind::equal(Self, Self) -> Bool
 pub fn Kind::not_equal(Self, Self) -> Bool
@@ -141,15 +143,17 @@ pub fn Kind::of(UInt64) -> Self
 pub fn Kind::server_only(Self) -> Bool
 pub fn Kind::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Level {
   Initial
   Handshake
   Application
-} derive(Eq, @debug.Debug)
+}
 pub fn Level::equal(Self, Self) -> Bool
 pub fn Level::not_equal(Self, Self) -> Bool
 pub fn Level::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Limits {
   idle_timeout : UInt64
   udp_payload : UInt64
@@ -164,7 +168,7 @@ pub(all) struct Limits {
   active_connection_ids : UInt64
   migration : Bool
   datagram_frame : UInt64
-} derive(Eq, @debug.Debug)
+}
 pub fn Limits::equal(Self, Self) -> Bool
 pub fn Limits::new(idle_timeout? : UInt64, udp_payload? : UInt64, data? : UInt64, stream_data_bidi_local? : UInt64, stream_data_bidi_remote? : UInt64, stream_data_uni? : UInt64, streams_bidi? : UInt64, streams_uni? : UInt64, ack_delay_exponent? : UInt64, max_ack_delay? : UInt64, active_connection_ids? : UInt64, migration? : Bool, datagram_frame? : UInt64) -> Self
 pub fn Limits::not_equal(Self, Self) -> Bool
@@ -172,10 +176,11 @@ pub fn Limits::params(Self) -> Array[Param]
 pub fn Limits::read(ArrayView[Param], base? : Self) -> Self
 pub fn Limits::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Param {
   kind : Kind
   value : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn Param::as_int(Self) -> UInt64?
 pub fn Param::equal(Self, Self) -> Bool
 pub fn Param::flag(Kind) -> Self
@@ -183,11 +188,12 @@ pub fn Param::int(Kind, UInt64) -> Self
 pub fn Param::not_equal(Self, Self) -> Bool
 pub fn Param::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Phase {
   Active
   Closing
   Draining
-} derive(Eq, @debug.Debug)
+}
 pub fn Phase::equal(Self, Self) -> Bool
 pub fn Phase::not_equal(Self, Self) -> Bool
 pub fn Phase::to_repr(Self) -> @debug.Repr

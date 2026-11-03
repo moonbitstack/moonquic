@@ -74,11 +74,12 @@ pub fn Rtt::smoothed(Self) -> Int64
 pub fn Rtt::threshold(Self, policy? : Policy) -> Int64
 pub fn Rtt::variation(Self) -> Int64
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Sent {
   pn : Int64
   at : Int64
   size : Int64
-} derive(Eq, @debug.Debug)
+}
 pub fn Sent::equal(Self, Self) -> Bool
 pub fn Sent::not_equal(Self, Self) -> Bool
 pub fn Sent::to_repr(Self) -> @debug.Repr

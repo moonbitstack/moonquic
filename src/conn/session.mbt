@@ -19,11 +19,12 @@
 /// Where a connection is in its lifecycle (RFC 9000 §10.2): exchanging packets, closing —
 /// this endpoint sent a CONNECTION_CLOSE and answers anything further with it — or draining,
 /// where the peer closed and nothing more goes out.
+#derive(Eq, Debug)
 pub(all) enum Phase {
   Active
   Closing
   Draining
-} derive(Eq, Debug)
+}
 
 ///|
 /// The smallest a datagram carrying an ack-eliciting Initial packet may be (RFC 9000 §14.1).

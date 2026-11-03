@@ -179,11 +179,12 @@ pub fn Rtt::threshold(self : Rtt, policy~ : Policy = policy) -> Int64 {
 ///|
 /// A sent, not yet acknowledged ack-eliciting packet (RFC 9002 §A.1): its number, when it
 /// went out, and how many bytes it put in flight.
+#derive(Eq, Debug)
 pub(all) struct Sent {
   pn : Int64
   at : Int64
   size : Int64
-} derive(Eq, Debug)
+}
 
 ///|
 /// What is outstanding in one packet-number space, and the largest number acknowledged so

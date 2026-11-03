@@ -14,6 +14,7 @@
 /// A decoded QUIC frame. `Padding` collapses a run of zero bytes to its length;
 /// `Stream` carries application data on a stream, with a byte `offset` and a `fin`
 /// flag marking the end of the stream (RFC 9000 §19.8).
+#derive(Eq, Debug)
 pub(all) enum Frame {
   Padding(Int32)
   Ping
@@ -59,7 +60,7 @@ pub(all) enum Frame {
   // `frame_type` is `Some` for a transport-error close (0x1c) and `None` for an
   // application-error close (0x1d), which omits the triggering frame type.
   ConnectionClose(error_code~ : UInt64, frame_type~ : UInt64?, reason~ : Bytes)
-} derive(Eq, Debug)
+}
 
 ///|
 /// Write an ACK frame's body — Largest Acknowledged, ACK Delay, the range count, First ACK
@@ -478,9 +479,10 @@ pub extend Frame with Eq::{not_equal, equal}
 
 ///|
 /// A malformed ACK frame: its fields do not describe a packet-number set.
+#derive(Eq)
 pub(all) suberror Refused {
   Malformed(String)
-} derive(Eq)
+}
 
 ///|
 pub extend Refused with Eq::{not_equal, equal}

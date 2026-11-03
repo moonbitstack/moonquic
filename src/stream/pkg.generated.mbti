@@ -29,11 +29,12 @@ pub let ratio : Double
 pub fn sequence(UInt64) -> UInt64
 
 // Errors
+#derive(Eq)
 pub(all) suberror Refused {
   Illegal(String)
   Exceeded(limit~ : UInt64, got~ : UInt64)
   Conflict(String)
-} derive(Eq)
+}
 pub fn Refused::equal(Self, Self) -> Bool
 pub fn Refused::not_equal(Self, Self) -> Bool
 pub fn Refused::output(Self, &Logger) -> Unit
@@ -69,12 +70,13 @@ pub fn Budget::on_max_stream_data(Self, UInt64, UInt64) -> Unit
 pub fn Budget::spend(Self, UInt64, UInt64) -> Unit raise Refused
 pub fn Budget::stream(Self, UInt64) -> Credit
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Chunk {
   stream : UInt64
   offset : UInt64
   length : UInt64
   fin : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn Chunk::equal(Self, Self) -> Bool
 pub fn Chunk::not_equal(Self, Self) -> Bool
 pub fn Chunk::to_repr(Self) -> @debug.Repr
@@ -90,30 +92,33 @@ pub fn Credit::new(UInt64) -> Self
 pub fn Credit::sent(Self) -> UInt64
 pub fn Credit::spend(Self, UInt64) -> Unit raise Refused
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Direction {
   Bidi
   Uni
-} derive(Eq, @debug.Debug)
+}
 pub fn Direction::equal(Self, Self) -> Bool
 pub fn Direction::not_equal(Self, Self) -> Bool
 pub fn Direction::to_repr(Self) -> @debug.Repr
 
 type Incoming
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Initiator {
   Client
   Server
-} derive(Eq, @debug.Debug)
+}
 pub fn Initiator::equal(Self, Self) -> Bool
 pub fn Initiator::not_equal(Self, Self) -> Bool
 pub fn Initiator::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Out {
   mut pending : UInt64
   mut offset : UInt64
   mut fin_queued : Bool
   mut fin_sent : Bool
-} derive(Eq, @debug.Debug)
+}
 pub fn Out::equal(Self, Self) -> Bool
 pub fn Out::not_equal(Self, Self) -> Bool
 pub fn Out::to_repr(Self) -> @debug.Repr
@@ -127,6 +132,7 @@ pub fn Quota::grant(Self, UInt64) -> Unit
 pub fn Quota::new(UInt64) -> Self
 pub fn Quota::open(Self, UInt64) -> Unit raise Refused
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Receiving {
   Recv
   SizeKnown
@@ -134,19 +140,20 @@ pub(all) enum Receiving {
   DataRead
   ResetReceived
   ResetRead
-} derive(Eq, @debug.Debug)
+}
 pub fn Receiving::equal(Self, Self) -> Bool
 pub fn Receiving::next(Self, RecvEvent) -> Self raise Refused
 pub fn Receiving::not_equal(Self, Self) -> Bool
 pub fn Receiving::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum RecvEvent {
   Receive(fin~ : Bool)
   AllReceived
   AppRead
   ReceiveReset
   AppReadReset
-} derive(Eq, @debug.Debug)
+}
 pub fn RecvEvent::equal(Self, Self) -> Bool
 pub fn RecvEvent::not_equal(Self, Self) -> Bool
 pub fn RecvEvent::to_repr(Self) -> @debug.Repr
@@ -167,16 +174,18 @@ pub fn Scheduler::on_params(Self, data~ : UInt64, bidi~ : UInt64, uni~ : UInt64)
 pub fn Scheduler::queue(Self, UInt64, UInt64) -> Unit
 pub fn Scheduler::queue_fin(Self, UInt64) -> Unit
 
+#derive(Eq, @debug.Debug)
 pub(all) enum SendEvent {
   Write(fin~ : Bool)
   AllAcked
   ResetStream
   ResetAcked
-} derive(Eq, @debug.Debug)
+}
 pub fn SendEvent::equal(Self, Self) -> Bool
 pub fn SendEvent::not_equal(Self, Self) -> Bool
 pub fn SendEvent::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) enum Sending {
   Ready
   Send
@@ -184,7 +193,7 @@ pub(all) enum Sending {
   DataRecvd
   ResetSent
   ResetRecvd
-} derive(Eq, @debug.Debug)
+}
 pub fn Sending::equal(Self, Self) -> Bool
 pub fn Sending::next(Self, SendEvent) -> Self raise Refused
 pub fn Sending::not_equal(Self, Self) -> Bool

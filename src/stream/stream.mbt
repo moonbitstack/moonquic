@@ -9,11 +9,12 @@
 /// to send past one the peer advertised (§4.1, §4.6). `Conflict` is a retransmission
 /// that disagrees with what arrived before, or a final size contradicting one already
 /// known (§2.2, §4.5) — which RFC 9000 makes a connection error.
+#derive(Eq)
 pub(all) suberror Refused {
   Illegal(String)
   Exceeded(limit~ : UInt64, got~ : UInt64)
   Conflict(String)
-} derive(Eq)
+}
 
 ///|
 /// A refusal prints as the fault it is.
@@ -37,17 +38,19 @@ pub extend Refused with Eq::{not_equal, equal}
 
 ///|
 /// Which endpoint opened a stream.
+#derive(Eq, Debug)
 pub(all) enum Initiator {
   Client
   Server
-} derive(Eq, Debug)
+}
 
 ///|
 /// Whether a stream carries data one way or both.
+#derive(Eq, Debug)
 pub(all) enum Direction {
   Bidi
   Uni
-} derive(Eq, Debug)
+}
 
 ///|
 /// The endpoint that opened stream `id` — bit 0.
@@ -125,6 +128,7 @@ pub fn is_writable(id : UInt64, server~ : Bool) -> Bool {
 
 ///|
 /// The sending part's state (§3.1).
+#derive(Eq, Debug)
 pub(all) enum Sending {
   Ready
   Send
@@ -132,17 +136,18 @@ pub(all) enum Sending {
   DataRecvd
   ResetSent
   ResetRecvd
-} derive(Eq, Debug)
+}
 
 ///|
 /// What the sending part did: wrote a STREAM frame, with `fin` on the last one; had all
 /// its data acknowledged; sent a RESET_STREAM; had that reset acknowledged.
+#derive(Eq, Debug)
 pub(all) enum SendEvent {
   Write(fin~ : Bool)
   AllAcked
   ResetStream
   ResetAcked
-} derive(Eq, Debug)
+}
 
 ///|
 /// The state after `event` (§3.1). A stream may be reset from any state short of a
@@ -168,6 +173,7 @@ pub fn Sending::next(
 
 ///|
 /// The receiving part's state (§3.2).
+#derive(Eq, Debug)
 pub(all) enum Receiving {
   Recv
   SizeKnown
@@ -175,19 +181,20 @@ pub(all) enum Receiving {
   DataRead
   ResetReceived
   ResetRead
-} derive(Eq, Debug)
+}
 
 ///|
 /// What reached the receiving part: a STREAM frame, with `fin` fixing the final size;
 /// all the data up to that size; the application reading it all; a RESET_STREAM; the
 /// application being told of that reset.
+#derive(Eq, Debug)
 pub(all) enum RecvEvent {
   Receive(fin~ : Bool)
   AllReceived
   AppRead
   ReceiveReset
   AppReadReset
-} derive(Eq, Debug)
+}
 
 ///|
 /// The state after `event` (§3.2). A stream may be reset from any state short of a
@@ -937,22 +944,24 @@ pub fn Streams::max_stream_data(self : Streams, id : UInt64) -> UInt64? {
 ///|
 /// What one stream still has to send: how much is queued, where its next frame starts,
 /// and whether a FIN is queued and whether it has gone out.
+#derive(Eq, Debug)
 pub(all) struct Out {
   mut pending : UInt64
   mut offset : UInt64
   mut fin_queued : Bool
   mut fin_sent : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 /// A scheduling decision: send `length` bytes of `stream` at `offset`, ending it when
 /// `fin`.
+#derive(Eq, Debug)
 pub(all) struct Chunk {
   stream : UInt64
   offset : UInt64
   length : UInt64
   fin : Bool
-} derive(Eq, Debug)
+}
 
 ///|
 /// How many bytes of stream data one frame carries at most.

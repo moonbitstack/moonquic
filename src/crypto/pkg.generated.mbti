@@ -45,11 +45,12 @@ pub let version : Version
 // Errors
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) struct Keys {
   key : Bytes
   iv : Bytes
   hp : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn Keys::equal(Self, Self) -> Bool
 pub fn Keys::mask(Self, BytesView, suite? : Suite) -> Bytes
 pub fn Keys::nonce(Self, Int64) -> Bytes
@@ -72,6 +73,7 @@ pub(all) struct Suite {
 }
 pub fn Suite::new(digest? : @keys.Digest, key? : Int32, iv? : Int32, hp? : Int32, tag? : Int32, aead? : (Bytes) -> &@spec.Aead, mask? : (Bytes, BytesView) -> Bytes) -> Self
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Version {
   salt : Bytes
   key : Bytes
@@ -80,7 +82,7 @@ pub(all) struct Version {
   ku : Bytes
   retry : Bytes
   nonce : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn Version::equal(Self, Self) -> Bool
 pub fn Version::new(salt? : Bytes, key? : Bytes, iv? : Bytes, hp? : Bytes, ku? : Bytes, retry? : Bytes, nonce? : Bytes) -> Self
 pub fn Version::not_equal(Self, Self) -> Bool

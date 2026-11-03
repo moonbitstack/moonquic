@@ -5,6 +5,7 @@
 /// A transport parameter's identifier (RFC 9000 §18.2, and RFC 9221's datagram
 /// extension). `Other` carries anything else: the block is read and written generically,
 /// so a parameter this build has no name for survives a round trip intact.
+#derive(Eq, Debug)
 pub(all) enum Kind {
   OriginalDcid
   MaxIdleTimeout
@@ -25,7 +26,7 @@ pub(all) enum Kind {
   RetryScid
   MaxDatagramFrameSize
   Other(UInt64)
-} derive(Eq, Debug)
+}
 
 ///|
 /// The identifier on the wire.
@@ -92,10 +93,11 @@ pub fn Kind::server_only(self : Kind) -> Bool {
 ///|
 /// One transport parameter: what it is, and its value bytes. An integer parameter's
 /// value is a single varint — `Param::int` writes one and `Param::as_int` reads one.
+#derive(Eq, Debug)
 pub(all) struct Param {
   kind : Kind
   value : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// A parameter whose value is one varint (RFC 9000 §18.2).
@@ -173,6 +175,7 @@ pub fn find(params : ArrayView[Param], kind : Kind) -> Param? {
 /// The integer parameters only; the connection IDs, the preferred address and the
 /// stateless reset token stay in the block, because they are identifiers and addresses
 /// rather than limits and the connection reads them where it needs them.
+#derive(Eq, Debug)
 pub(all) struct Limits {
   idle_timeout : UInt64
   udp_payload : UInt64
@@ -187,7 +190,7 @@ pub(all) struct Limits {
   active_connection_ids : UInt64
   migration : Bool
   datagram_frame : UInt64
-} derive(Eq, Debug)
+}
 
 ///|
 /// RFC 9000 §18.2's defaults: no idle timeout, the largest UDP payload the protocol

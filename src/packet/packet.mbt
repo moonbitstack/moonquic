@@ -10,25 +10,27 @@
 ///|
 /// The four long-header packet types (RFC 9000 §17.2), in the encoding of the
 /// first byte's type bits: Initial 0, 0-RTT 1, Handshake 2, Retry 3.
+#derive(Eq, Debug)
 pub(all) enum Kind {
   Initial
   ZeroRtt
   Handshake
   Retry
-} derive(Eq, Debug)
+}
 
 ///|
 /// A long packet header's invariant fields: its type, the type-specific low four
 /// bits of the first byte (the packet-number length for Initial/Handshake/0-RTT,
 /// unused by Retry), the 32-bit version, and the destination and source connection
 /// IDs.
+#derive(Eq, Debug)
 pub(all) struct Long {
   packet_type : Kind
   type_specific : Int32
   version : UInt32
   dcid : Bytes
   scid : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// The first byte's 2-bit type code for a packet type.
@@ -123,11 +125,12 @@ pub extend Kind with Eq::{not_equal, equal}
 /// What follows a long header's invariant part in an Initial, 0-RTT or Handshake packet:
 /// the Initial token (empty for the two types that carry none), the Length field covering
 /// the packet number and the payload, and where in the packet the packet number starts.
+#derive(Eq, Debug)
 pub(all) struct Tail {
   token : Bytes
   length : UInt64
   at : Int32
-} derive(Eq, Debug)
+}
 
 ///|
 /// The header a protected packet is sealed under: the invariant header, the Initial
@@ -489,12 +492,13 @@ pub fn Space::build_ack(self : Space, ack_delay : UInt64) -> @frame.Frame? {
 /// A short header's fields: the latency spin bit, the key-phase bit, the
 /// packet-number length (1–4 bytes, from the low two bits of the first byte plus
 /// one), and the destination connection ID.
+#derive(Eq, Debug)
 pub(all) struct Short {
   spin : Bool
   key_phase : Bool
   pn_length : Int32
   dcid : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// Encode a short header: first byte (`0` header-form, `1` fixed bit, spin, two
@@ -562,9 +566,10 @@ pub extend Short with Eq::{not_equal, equal}
 
 ///|
 /// A truncated or unparsable frame in a packet payload.
+#derive(Eq)
 pub(all) suberror Refused {
   Malformed(String)
-} derive(Eq)
+}
 
 ///|
 pub extend Refused with Eq::{not_equal, equal}

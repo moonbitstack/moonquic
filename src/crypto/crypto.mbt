@@ -123,6 +123,7 @@ pub fn chacha_mask(hp : Bytes, sample : BytesView) -> Bytes {
 /// The preset is version 1. RFC 9369 changes every one of them for version 2, which is
 /// a record away; this library ships no version-2 constants because it has not checked
 /// them against that RFC.
+#derive(Eq, Debug)
 pub(all) struct Version {
   salt : Bytes
   key : Bytes
@@ -131,7 +132,7 @@ pub(all) struct Version {
   ku : Bytes
   retry : Bytes
   nonce : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// QUIC version 1 (RFC 9001 §5.2 and §5.8).
@@ -162,11 +163,12 @@ pub fn Version::new(
 ///|
 /// One direction's packet-protection keys (RFC 9001 §5.1): the AEAD key, the IV each
 /// packet's nonce is built from, and the header-protection key.
+#derive(Eq, Debug)
 pub(all) struct Keys {
   key : Bytes
   iv : Bytes
   hp : Bytes
-} derive(Eq, Debug)
+}
 
 ///|
 /// The keys a traffic secret expands to (RFC 9001 §5.1), under the three labels the

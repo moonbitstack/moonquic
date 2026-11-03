@@ -14,11 +14,12 @@
 /// A QUIC encryption level / packet-number space (RFC 9001 §4.1.1). 0-RTT shares the
 /// Application space, so the three long-lived spaces are Initial, Handshake, and
 /// Application.
+#derive(Eq, Debug)
 pub(all) enum Level {
   Initial
   Handshake
   Application
-} derive(Eq, Debug)
+}
 
 ///|
 /// A QUIC connection's per-space numbering/ACK state and per-level CRYPTO streams.

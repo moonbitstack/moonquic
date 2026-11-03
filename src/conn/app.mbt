@@ -7,6 +7,7 @@
 
 ///|
 /// Something a connection has to tell its application.
+#derive(Eq, Debug)
 pub(all) enum Event {
   /// The handshake is complete.
   Connected
@@ -18,7 +19,7 @@ pub(all) enum Event {
   Stopped(UInt64, UInt64)
   /// The connection is over, with the error code that ended it; 0 for an idle timeout.
   Closed(UInt64)
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend Event with Eq::{not_equal, equal}

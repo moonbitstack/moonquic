@@ -42,9 +42,10 @@ pub fn retry(Long, token~ : Bytes, tag~ : Bytes) -> Bytes
 pub fn versions(dcid~ : Bytes, scid~ : Bytes, ArrayView[UInt32], first? : Int32) -> Bytes
 
 // Errors
+#derive(Eq)
 pub(all) suberror Refused {
   Malformed(String)
-} derive(Eq)
+}
 pub fn Refused::equal(Self, Self) -> Bool
 pub fn Refused::not_equal(Self, Self) -> Bool
 pub fn Refused::output(Self, &Logger) -> Unit
@@ -52,34 +53,37 @@ pub fn Refused::to_string(Self) -> String
 pub impl Show for Refused
 
 // Types and methods
+#derive(Eq, @debug.Debug)
 pub(all) enum Kind {
   Initial
   ZeroRtt
   Handshake
   Retry
-} derive(Eq, @debug.Debug)
+}
 pub fn Kind::equal(Self, Self) -> Bool
 pub fn Kind::not_equal(Self, Self) -> Bool
 pub fn Kind::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Long {
   packet_type : Kind
   type_specific : Int32
   version : UInt32
   dcid : Bytes
   scid : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn Long::equal(Self, Self) -> Bool
 pub fn Long::header(Self, BytesView, payload~ : Int32, token? : Bytes) -> Bytes
 pub fn Long::not_equal(Self, Self) -> Bool
 pub fn Long::to_repr(Self) -> @debug.Repr
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Short {
   spin : Bool
   key_phase : Bool
   pn_length : Int32
   dcid : Bytes
-} derive(Eq, @debug.Debug)
+}
 pub fn Short::equal(Self, Self) -> Bool
 pub fn Short::header(Self, BytesView) -> Bytes
 pub fn Short::not_equal(Self, Self) -> Bool
@@ -102,11 +106,12 @@ pub fn Space::on_ack_received(Self, Int64) -> Unit
 pub fn Space::on_packet_received(Self, Int64, Bool) -> Unit
 pub fn Space::seen(Self, Int64) -> Bool
 
+#derive(Eq, @debug.Debug)
 pub(all) struct Tail {
   token : Bytes
   length : UInt64
   at : Int32
-} derive(Eq, @debug.Debug)
+}
 pub fn Tail::equal(Self, Self) -> Bool
 pub fn Tail::not_equal(Self, Self) -> Bool
 pub fn Tail::to_repr(Self) -> @debug.Repr
