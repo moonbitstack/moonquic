@@ -25,6 +25,8 @@ keywords = [
   "bbr",
   "loss-recovery",
   "datagram",
+  "0-rtt",
+  "early-data",
   "connection-migration",
   "path-validation",
   "stateless-reset",
