@@ -14,6 +14,7 @@ pub struct Endpoint[A] {
   priv aliases : Map[Bytes, Bytes]
   priv stateless : Array[(Bytes, A)]
   priv busy : Array[Session[A]]
+  priv reset_key : Bytes
 }
 
 ///|
@@ -33,6 +34,7 @@ pub fn[A] Endpoint::new(cfg : Config) -> Endpoint[A] {
     aliases: Map([]),
     stateless: [],
     busy: [],
+    reset_key: Bytes::make(32, 0),
   }
 }
 
@@ -62,6 +64,7 @@ pub fn[A] Endpoint::server(
     aliases: Map([]),
     stateless: [],
     busy: [],
+    reset_key: rand(32),
   }
 }
 
@@ -157,7 +160,7 @@ pub fn[A] Endpoint::conn(self : Endpoint[A], cid : Bytes) -> Session[A]? {
 /// Connection ID names, opening one when an Initial packet arrives for an id the server does
 /// not hold, and drive that connection with it (RFC 9000 §5.2). A datagram naming no
 /// connection is dropped — RFC 9000 §10.3's stateless reset is not implemented.
-pub fn[A] Endpoint::recv(
+pub fn[A : Eq] Endpoint::recv(
   self : Endpoint[A],
   datagram : Bytes,
   from : A,
@@ -180,13 +183,34 @@ pub fn[A] Endpoint::recv(
         }
       }
     }
-    None => {
-      guard self.lookup_short(datagram) is Some(c) else { return }
-      c
-    }
+    None =>
+      match self.lookup_short(datagram) {
+        Some(c) => c
+        // A short header naming no connection is answered with a stateless reset, so the
+        // peer learns the connection is gone rather than waiting out its idle timer.
+        None => return self.reset_unknown(datagram, from)
+      }
   }
-  conn.on_datagram(datagram, now)
+  conn.on_datagram(datagram, from, (self.rand)(8), now)
   self.note(conn)
+}
+
+///|
+/// Answer a short-header datagram that names no connection with a stateless reset (RFC 9000
+/// §10.3): a packet whose last sixteen bytes are the token this endpoint would have given for
+/// that connection id. A datagram too short to be one, or one that does not look like a short
+/// header, is dropped.
+fn[A] Endpoint::reset_unknown(
+  self : Endpoint[A],
+  datagram : Bytes,
+  from : A,
+) -> Unit {
+  guard datagram.length() >= 21 && self.reset_key.length() >= 16 else { return }
+  guard (datagram[0].to_int() & 0x80) == 0 else { return }
+  guard datagram.length() >= 1 + cid_size else { return }
+  let cid = datagram[1:1 + cid_size].to_owned()
+  let token = reset_token(self.reset_key, cid)
+  self.stateless.push((stateless_reset(token, self.rand), from))
 }
 
 ///|

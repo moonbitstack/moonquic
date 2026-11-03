@@ -137,7 +137,7 @@ fn pad(payload : Bytes, build : (Bytes) -> Bytes, min : Int32) -> Bytes {
 /// amplification limit, the idle timer and the closing period are read from. `A` is the
 /// peer-address type the enclosing `Endpoint` was built with.
 pub struct Session[A] {
-  peer : A
+  mut peer : A
   cid : Bytes
   peer_cid : Bytes
   core : Server
@@ -174,6 +174,15 @@ pub struct Session[A] {
   priv mut handshake_gone : Bool
   priv mut confirmed : Bool
   priv mut next_uni : UInt64
+  path : Path
+}
+
+///|
+/// Whether the path the peer is on has answered a PATH_CHALLENGE (RFC 9000 §8.2). A fresh
+/// connection starts unvalidated; the handshake's own return traffic validates the path it
+/// arrived on, and a move to a new address starts again.
+pub fn[A] Session::path_validated(self : Session[A]) -> Bool {
+  self.path.validated()
 }
 
 ///|
@@ -241,6 +250,7 @@ fn[A] Session::new(
     handshake_gone: false,
     confirmed: false,
     next_uni: 0UL,
+    path: Path::new(),
   }
 }
 
@@ -565,11 +575,21 @@ fn[A] Session::fill(self : Session[A], now : Int64) -> Unit raise {
 /// Take a datagram from this connection's peer at `now`: count it against the amplification
 /// budget and the idle timer, unprotect it at whichever level its header names, and drive the
 /// state machine with the frames inside.
-fn[A] Session::on_datagram(
+fn[A : Eq] Session::on_datagram(
   self : Session[A],
   datagram : Bytes,
+  from : A,
+  nonce : Bytes,
   now : Int64,
 ) -> Unit raise {
+  // A 1-RTT packet from an address other than the one the connection is on begins a move
+  // (RFC 9000 §9). The new path is challenged; it is not trusted until the challenge comes
+  // back as a PATH_RESPONSE.
+  if self.phase == Active && self.app_rx is Some(_) && from != self.peer {
+    let challenge = self.path.start(nonce)
+    self.peer = from
+    self.sender.queue_control(PathChallenge(challenge))
+  }
   self.rx = self.rx + datagram.length().to_int64()
   self.last_rx = now
   self.packets = self.packets + 1
@@ -746,6 +766,10 @@ fn[A] Session::on_frames(
         }
       PathChallenge(data) if live =>
         self.sender.queue_control(PathResponse(data))
+      PathResponse(data) if live => {
+        // The path is proven once the challenge comes back unchanged (RFC 9000 §8.2).
+        let _ = self.path.check(data)
+      }
       _ => ()
     }
   }

@@ -31,6 +31,8 @@ pub fn find(ArrayView[Param], Kind) -> Param?
 
 pub fn idle_timeout(Int64, Int64) -> Int64
 
+pub fn is_stateless_reset(BytesView, BytesView) -> Bool
+
 pub let limits : Limits
 
 pub let min_datagram : Int32
@@ -41,6 +43,8 @@ pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) 
 
 pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
+pub fn reset_token(Bytes, Bytes) -> Bytes
+
 pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
 
 pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
@@ -48,6 +52,8 @@ pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.
 pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, suite? : @crypto.Suite) -> Bytes
 
 pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
+
+pub fn stateless_reset(Bytes, (Int32) -> Bytes, min? : Int32) -> Bytes
 
 // Errors
 
@@ -124,7 +130,7 @@ pub fn[A] Endpoint::conn_ids(Self[A]) -> Array[Bytes]
 pub fn[A] Endpoint::count(Self[A]) -> Int32
 pub fn[A] Endpoint::new(Config) -> Self[A]
 pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
-pub fn[A] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
+pub fn[A : Eq] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
 pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes, cid? : () -> Bytes) -> Self[A]
 pub fn[A] Endpoint::take_busy(Self[A]) -> Array[Session[A]]
 pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
@@ -216,6 +222,17 @@ pub fn Param::int(Kind, UInt64) -> Self
 pub fn Param::not_equal(Self, Self) -> Bool
 pub fn Param::to_repr(Self) -> @debug.Repr
 
+pub struct Path {
+  mut challenge : Bytes
+  mut validated : Bool
+}
+pub fn Path::challenge(Self) -> Bytes
+pub fn Path::check(Self, Bytes) -> Bool
+pub fn Path::new() -> Self
+pub fn Path::reset(Self) -> Unit
+pub fn Path::start(Self, Bytes) -> Bytes
+pub fn Path::validated(Self) -> Bool
+
 #derive(Eq, @debug.Debug)
 pub(all) enum Phase {
   Active
@@ -274,7 +291,7 @@ pub fn Server::send_server_hello(Self, @msg.Server, Bytes, Bytes, Int64) -> Byte
 pub fn Server::transcript_hash(Self) -> Bytes
 
 pub struct Session[A] {
-  peer : A
+  mut peer : A
   cid : Bytes
   peer_cid : Bytes
   core : Server
@@ -298,6 +315,7 @@ pub struct Session[A] {
   mut app_rx : @crypto.Keys?
   mut app_tx : @crypto.Keys?
   streams : @stream.Streams
+  path : Path
   // private fields
 }
 pub fn[A] Session::alpn(Self[A]) -> String?
@@ -314,6 +332,7 @@ pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
 pub fn[A] Session::open_uni(Self[A]) -> UInt64
 pub fn[A] Session::packets_received(Self[A]) -> Int32
+pub fn[A] Session::path_validated(Self[A]) -> Bool
 pub fn[A] Session::peer(Self[A]) -> A
 pub fn[A] Session::pending(Self[A]) -> Int32
 pub fn[A] Session::phase(Self[A]) -> Phase
