@@ -8,4 +8,5 @@
 // with whatever times it likes and a connection drives it with the real one.
 import {
   "moonbitstack/moonquic/frame",
+  "moonbitlang/core/math",
 }

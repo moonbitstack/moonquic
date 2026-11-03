@@ -14,6 +14,66 @@ pub let policy : Policy
 // Errors
 
 // Types and methods
+pub struct Bbr {
+  mut window : Int64
+  mut in_flight : Int64
+  mut btl_bw : Double
+  mut min_rtt : Int64
+  mut min_rtt_at : Int64
+  mut mode : Mode
+  mut delivered : Int64
+  mut sample_at : Int64
+  mut sample_delivered : Int64
+  mut full_bw : Double
+  mut full_bw_count : Int32
+  mut cycle : Int32
+  mut cycle_at : Int64
+  mut probe_rtt_at : Int64
+  policy : Policy
+}
+pub fn Bbr::bandwidth(Self) -> Double
+pub fn Bbr::bdp(Self) -> Int64
+pub fn Bbr::in_flight(Self) -> Int64
+pub fn Bbr::min_rtt(Self) -> Int64
+pub fn Bbr::minimum(Self) -> Int64
+pub fn Bbr::mode(Self) -> Mode
+pub fn Bbr::new(policy? : Policy) -> Self
+pub fn Bbr::on_ack(Self, Int64) -> Unit
+pub fn Bbr::on_ack_at(Self, Int64, now~ : Int64) -> Unit
+pub fn Bbr::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
+pub fn Bbr::on_lost(Self, Int64) -> Unit
+pub fn Bbr::on_persistent(Self) -> Unit
+pub fn Bbr::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
+pub fn Bbr::on_sent(Self, Int64) -> Unit
+pub fn Bbr::target(Self) -> Int64
+pub fn Bbr::window(Self) -> Int64
+
+pub struct Cubic {
+  mut window : Int64
+  mut ssthresh : Int64
+  mut in_flight : Int64
+  mut recovery : Int64
+  mut w_max : Int64
+  mut epoch : Int64
+  mut k : Double
+  mut rtt : Int64
+  policy : Policy
+}
+pub fn Cubic::in_flight(Self) -> Int64
+pub fn Cubic::minimum(Self) -> Int64
+pub fn Cubic::new(policy? : Policy) -> Self
+pub fn Cubic::on_ack(Self, Int64) -> Unit
+pub fn Cubic::on_ack_at(Self, Int64, now~ : Int64) -> Unit
+pub fn Cubic::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
+pub fn Cubic::on_lost(Self, Int64) -> Unit
+pub fn Cubic::on_persistent(Self) -> Unit
+pub fn Cubic::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
+pub fn Cubic::on_sent(Self, Int64) -> Unit
+pub fn Cubic::recovering(Self, Int64) -> Bool
+pub fn Cubic::ssthresh(Self) -> Int64
+pub fn Cubic::target(Self, Int64) -> Int64
+pub fn Cubic::window(Self) -> Int64
+
 pub struct Flight {
   mut packets : Array[Sent]
   mut largest_acked : Int64
@@ -25,6 +85,17 @@ pub fn Flight::on_ack(Self, Array[(Int64, Int64)]) -> Int64
 pub fn Flight::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
 pub fn Flight::outstanding(Self) -> Array[Int64]
 pub fn Flight::time_of(Self, Int64) -> Int64?
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Mode {
+  Startup
+  Drain
+  ProbeBw
+  ProbeRtt
+}
+pub fn Mode::equal(Self, Self) -> Bool
+pub fn Mode::not_equal(Self, Self) -> Bool
+pub fn Mode::to_repr(Self) -> @debug.Repr
 
 pub struct NewReno {
   mut window : Int64
@@ -116,4 +187,6 @@ pub(open) trait Control {
   fn on_lost(Self, Int64) -> Unit
   fn on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
   fn on_persistent(Self) -> Unit
+  fn on_ack_at(Self, Int64, now~ : Int64) -> Unit = _
+  fn on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit = _
 }

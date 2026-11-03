@@ -318,6 +318,31 @@ pub(open) trait Control {
   /// Persistent congestion (§7.6): the path stopped delivering for longer than a
   /// congestion period, and the window collapses to the minimum.
   fn on_persistent(Self) -> Unit
+  /// An acknowledgement at a known time. A controller whose window is a function of
+  /// elapsed time since the last reduction (CUBIC, RFC 9438) needs the clock, which the
+  /// byte-counting `on_ack` does not carry. NewReno does not, so the default forwards
+  /// to `on_ack` and an existing controller keeps working unchanged.
+  fn on_ack_at(Self, Int64, now~ : Int64) -> Unit = _
+  /// A round-trip sample. A controller whose window is a function of the path's
+  /// bandwidth-delay product (BBR) needs the smallest round trip seen; the default
+  /// ignores it.
+  fn on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit = _
+}
+
+///|
+/// The default acknowledgement-at-a-time: forward to the byte-counting `on_ack`, so a
+/// controller that never asked for the clock keeps working.
+impl Control with fn on_ack_at(self, size, now~) {
+  ignore(now)
+  self.on_ack(size)
+}
+
+///|
+/// The default round-trip sample: ignored, because a controller that does not model the
+/// path has no use for it.
+impl Control with fn on_rtt(_, sample~, now~) {
+  ignore(sample)
+  ignore(now)
 }
 
 ///|
@@ -515,7 +540,7 @@ pub fn State::on_ack(
   let was = self.flight.largest_acked()
   let sample_at = self.flight.time_of(largest)
   let freed = self.flight.on_ack(signed)
-  self.control.on_ack(freed)
+  self.control.on_ack_at(freed, now~)
   if freed > 0L {
     self.pto_count = 0
   }
@@ -525,6 +550,7 @@ pub fn State::on_ack(
     Some(at) =>
       if largest > was {
         self.rtt.sample(now - at, ack_delay~, policy=self.policy)
+        self.control.on_rtt(sample=now - at, now~)
       }
     None => ()
   }
