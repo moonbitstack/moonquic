@@ -52,6 +52,9 @@ pub(all) struct Config {
   max_frame : UInt64
   streams_bidi : UInt64
   streams_uni : UInt64
+  /// The largest DATAGRAM frame this endpoint will receive (RFC 9221 §3); zero, the
+  /// default, means it does not support them and will not advertise the parameter.
+  max_datagram_frame_size : UInt64
 }
 
 ///|
@@ -94,6 +97,7 @@ pub fn Config::default() -> Config {
     max_frame: 1024UL,
     streams_bidi: 100UL,
     streams_uni: 100UL,
+    max_datagram_frame_size: 0UL,
   }
 }
 
@@ -159,6 +163,7 @@ pub struct Session[A] {
   priv tls : @tls.Conn?
   streams : @stream.Streams
   priv events : Array[Event]
+  priv datagrams : Array[Bytes]
   priv initial_out : Outbox
   priv handshake_out : Outbox
   priv mut suite : @crypto.Suite
@@ -225,6 +230,7 @@ fn[A] Session::new(
       uni=@stream.Quota::new(cfg.streams_uni),
     ),
     events: [],
+    datagrams: [],
     initial_out: Outbox::new(),
     handshake_out: Outbox::new(),
     suite: @crypto.suite,
@@ -364,6 +370,9 @@ pub fn[A] Session::apply_peer_params(
   // §18.2: the initial flow-control parameters are a MAX_DATA and a MAX_STREAM_DATA on
   // every stream, delivered the moment the handshake carries them.
   self.sender.on_max_data(peer.data)
+  // RFC 9221 §3: the peer's max_datagram_frame_size is how large a DATAGRAM frame it will
+  // accept; zero means it accepts none.
+  self.sender.on_peer_datagram(peer.datagram_frame)
 }
 
 ///|
@@ -723,6 +732,18 @@ fn[A] Session::on_frames(
       }
       StopSending(id~, error_code~) if live =>
         self.events.push(Stopped(id, error_code))
+      @frame.Datagram(data~) =>
+        // RFC 9221 §5: a DATAGRAM frame outside 0-RTT/1-RTT, or one we never said we
+        // would receive, is a connection error.
+        if level != Level::Application ||
+          self.cfg.max_datagram_frame_size == 0UL {
+          return self.close(0x0aUL, b"DATAGRAM not allowed", now)
+        } else {
+          self.datagrams.push(data)
+          if !self.events.contains(Event::Datagram) {
+            self.events.push(Event::Datagram)
+          }
+        }
       PathChallenge(data) if live =>
         self.sender.queue_control(PathResponse(data))
       _ => ()

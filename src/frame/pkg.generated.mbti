@@ -30,6 +30,7 @@ pub(all) enum Frame {
   Ping
   Crypto(offset~ : UInt64, data~ : Bytes)
   Stream(id~ : UInt64, offset~ : UInt64, fin~ : Bool, data~ : Bytes)
+  Datagram(data~ : Bytes)
   Ack(largest~ : UInt64, delay~ : UInt64, first_range~ : UInt64, ranges~ : Array[(UInt64, UInt64)])
   AckEcn(largest~ : UInt64, delay~ : UInt64, first_range~ : UInt64, ranges~ : Array[(UInt64, UInt64)], ect0~ : UInt64, ect1~ : UInt64, ce~ : UInt64)
   ResetStream(id~ : UInt64, error_code~ : UInt64, final_size~ : UInt64)

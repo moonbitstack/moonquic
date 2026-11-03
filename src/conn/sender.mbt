@@ -46,6 +46,13 @@ pub struct Sender {
   priv control : Array[@frame.Frame]
   priv in_packet : Map[Int64, Carried]
   priv retransmit : Array[@stream.Chunk]
+  /// Datagrams queued for the next 1-RTT packet. They are never re-queued: RFC 9221 makes
+  /// them unreliable, so a lost one is simply lost.
+  priv datagrams : Array[Bytes]
+  /// The largest DATAGRAM frame the peer will accept (its max_datagram_frame_size); zero
+  /// means it accepts none.
+  mut datagram_max : UInt64
+  max_datagram : Int64
   mut next_pn : Int64
   mut ack_exponent : Int32
   mut probes : Int32
@@ -79,6 +86,9 @@ pub fn Sender::new(
     control: [],
     in_packet: Map([]),
     retransmit: [],
+    datagrams: [],
+    datagram_max: 0UL,
+    max_datagram: max_datagram_size,
     next_pn: 0L,
     ack_exponent: 3,
     probes: 0,
@@ -111,6 +121,39 @@ pub fn Sender::queue_stream(self : Sender, id : UInt64, bytes : Bytes) -> Unit {
   held.parts.push({ offset: held.end, bytes, live: size, })
   held.end = held.end + size
   self.sched.queue(id, size)
+}
+
+///|
+/// Adopt the peer's max_datagram_frame_size (RFC 9221 §3). Zero means the peer will not
+/// receive datagrams, and `queue_datagram` refuses them.
+pub fn Sender::on_peer_datagram(self : Sender, limit : UInt64) -> Unit {
+  self.datagram_max = limit
+}
+
+///|
+/// Queue an unreliable datagram for the next 1-RTT packet, answering whether it was taken.
+/// It is refused when the peer advertised no datagram support, when it is larger than the
+/// peer accepts, or when it would not fit a datagram beside the header, tag and a small ACK.
+/// A datagram is never retransmitted.
+pub fn Sender::queue_datagram(self : Sender, data : Bytes) -> Bool {
+  let size = data.length().to_uint64()
+  // The frame is a type byte, a length varint of at most eight, and the data.
+  if self.datagram_max == 0UL || size + 9UL > self.datagram_max {
+    return false
+  }
+  // Leave room for the short header, the AEAD tag, an ACK and control frames.
+  let reserve : UInt64 = 128
+  if size + reserve > self.max_datagram.reinterpret_as_uint64() {
+    return false
+  }
+  self.datagrams.push(data)
+  true
+}
+
+///|
+/// How many datagrams are waiting for a packet.
+pub fn Sender::pending_datagrams(self : Sender) -> Int32 {
+  self.datagrams.length()
 }
 
 ///|
@@ -227,7 +270,15 @@ pub fn Sender::poll_send(
     carried.control.push(frame)
     size = size + cost
   }
-  if self.next_chunk() is Some(chunk) {
+  if self.datagrams.length() > 0 {
+    // A datagram goes beside the control frames but instead of a stream chunk: it is nearly
+    // a datagram's worth of payload, so a chunk would push the packet over the path. It is
+    // not recorded in `carried`, because a lost datagram is not sent again.
+    let data = self.datagrams.remove(0)
+    let frame : @frame.Frame = @frame.Datagram(data~)
+    frames.push(frame)
+    size = size + @frame.encode(frame).length()
+  } else if self.next_chunk() is Some(chunk) {
     let frame = self.materialize(chunk)
     frames.push(frame)
     carried.chunks.push(chunk)

@@ -118,6 +118,7 @@ fn declared(cfg : Config, original : Bytes, cid : Bytes) -> Bytes {
     streams_uni=cfg.streams_uni,
     max_ack_delay=(cfg.max_ack_delay / 1000L).reinterpret_as_uint64(),
     migration=false,
+    datagram_frame=cfg.max_datagram_frame_size,
   )
   let params = limits.params()
   params.push({ kind: OriginalDcid, value: original, })

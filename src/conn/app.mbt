@@ -19,6 +19,8 @@ pub(all) enum Event {
   Stopped(UInt64, UInt64)
   /// The connection is over, with the error code that ended it; 0 for an idle timeout.
   Closed(UInt64)
+  /// A DATAGRAM frame arrived (RFC 9221); `take_datagrams` reads what is waiting.
+  Datagram
 }
 
 ///|
@@ -96,6 +98,22 @@ pub fn[A] Session::reset(self : Session[A], id : UInt64, code : UInt64) -> Unit 
 /// Ask the peer to stop sending on stream `id` with `code`.
 pub fn[A] Session::stop(self : Session[A], id : UInt64, code : UInt64) -> Unit {
   self.sender.queue_control(StopSending(id~, error_code=code))
+}
+
+///|
+/// Queue an unreliable application datagram (RFC 9221), answering whether it was taken. It is
+/// refused when the peer did not advertise datagram support or when it would not fit.
+pub fn[A] Session::send_datagram(self : Session[A], data : Bytes) -> Bool {
+  self.sender.queue_datagram(data)
+}
+
+///|
+/// The datagrams that arrived since the last call, emptied by it, in arrival order. A datagram
+/// is whole; it is not a byte stream and nothing is retransmitted.
+pub fn[A] Session::take_datagrams(self : Session[A]) -> Array[Bytes] {
+  let out = self.datagrams.copy()
+  self.datagrams.clear()
+  out
 }
 
 ///|

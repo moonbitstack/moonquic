@@ -64,6 +64,7 @@ pub(all) struct Config {
   max_frame : UInt64
   streams_bidi : UInt64
   streams_uni : UInt64
+  max_datagram_frame_size : UInt64
 }
 pub fn Config::default() -> Self
 
@@ -109,6 +110,7 @@ pub(all) enum Event {
   Reset(UInt64, UInt64)
   Stopped(UInt64, UInt64)
   Closed(UInt64)
+  Datagram
 }
 pub fn Event::equal(Self, Self) -> Bool
 pub fn Event::not_equal(Self, Self) -> Bool
@@ -201,6 +203,8 @@ pub fn Phase::to_repr(Self) -> @debug.Repr
 pub struct Sender {
   sched : @stream.Scheduler
   recovery : @recovery.State
+  mut datagram_max : UInt64
+  max_datagram : Int64
   mut next_pn : Int64
   mut ack_exponent : Int32
   mut probes : Int32
@@ -213,10 +217,13 @@ pub fn Sender::new(UInt64, UInt64, Int64, Int64, Int64, UInt64) -> Self
 pub fn Sender::on_ack(Self, @frame.Frame, Int64) -> Unit raise
 pub fn Sender::on_max_data(Self, UInt64) -> Unit
 pub fn Sender::on_max_stream_data(Self, UInt64, UInt64) -> Unit
+pub fn Sender::on_peer_datagram(Self, UInt64) -> Unit
 pub fn Sender::on_pto_timeout(Self, Int64) -> Bool
 pub fn Sender::outstanding(Self) -> Array[Int64]
+pub fn Sender::pending_datagrams(Self) -> Int32
 pub fn Sender::poll_send(Self, Int64) -> (Int64, Array[@frame.Frame])? raise
 pub fn Sender::queue_control(Self, @frame.Frame) -> Unit
+pub fn Sender::queue_datagram(Self, Bytes) -> Bool
 pub fn Sender::queue_fin(Self, UInt64) -> Unit
 pub fn Sender::queue_stream(Self, UInt64, Bytes) -> Unit
 pub fn Sender::window(Self) -> Int64
@@ -290,10 +297,12 @@ pub fn[A] Session::release(Self[A], UInt64) -> Unit
 pub fn[A] Session::reset(Self[A], UInt64, UInt64) -> Unit
 pub fn[A] Session::rx_bytes(Self[A]) -> Int64
 pub fn[A] Session::send(Self[A], Level, Array[@frame.Frame]) -> Unit
+pub fn[A] Session::send_datagram(Self[A], Bytes) -> Bool
 pub fn[A] Session::send_level(Self[A]) -> Level
 pub fn[A] Session::server_name(Self[A]) -> String?
 pub fn[A] Session::stop(Self[A], UInt64, UInt64) -> Unit
 pub fn[A] Session::suite_code(Self[A]) -> Int32
+pub fn[A] Session::take_datagrams(Self[A]) -> Array[Bytes]
 pub fn[A] Session::take_events(Self[A]) -> Array[Event]
 pub fn[A] Session::take_received(Self[A]) -> Array[(Level, @frame.Frame)]
 pub fn[A] Session::tx_bytes(Self[A]) -> Int64

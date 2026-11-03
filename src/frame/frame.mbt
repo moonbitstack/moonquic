@@ -20,6 +20,8 @@ pub(all) enum Frame {
   Ping
   Crypto(offset~ : UInt64, data~ : Bytes)
   Stream(id~ : UInt64, offset~ : UInt64, fin~ : Bool, data~ : Bytes)
+  /// RFC 9221: an unreliable application datagram, carried whole and never retransmitted.
+  Datagram(data~ : Bytes)
   Ack(
     largest~ : UInt64,
     delay~ : UInt64,
@@ -107,6 +109,13 @@ pub fn encode(f : Frame) -> Bytes {
       buf.write_bytes(@quic.encode(type_byte.to_uint64())[:])
       buf.write_bytes(@quic.encode(id)[:])
       buf.write_bytes(@quic.encode(offset)[:])
+      buf.write_bytes(@quic.encode(data.length().to_uint64())[:])
+      buf.write_bytes(data[:])
+    }
+    Datagram(data~) => {
+      // Always the length-prefixed form (0x31), so the frame is self-delimiting and can
+      // share a packet with frames after it.
+      buf.write_bytes(@quic.encode(0x31UL)[:])
       buf.write_bytes(@quic.encode(data.length().to_uint64())[:])
       buf.write_bytes(data[:])
     }
@@ -450,6 +459,21 @@ pub fn decode(b : BytesView) -> (Frame, Int32)? {
       let reason = b[off:off + n].to_owned()
       off = off + n
       Some((ConnectionClose(error_code~, frame_type=None, reason~), off))
+    }
+    0x30UL =>
+      // No length: the datagram runs to the end of the packet (RFC 9221 §4).
+      Some((Datagram(data=b[tlen:].to_owned()), b.length()))
+    0x31UL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((length, llen)) else { return None }
+      off = off + llen
+      let n = length.to_int()
+      if b.length() < off + n {
+        return None
+      }
+      let data = b[off:off + n].to_owned()
+      off = off + n
+      Some((Datagram(data~), off))
     }
     _ => None
   }
