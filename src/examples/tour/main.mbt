@@ -98,7 +98,7 @@ fn main {
   println(
     "params             \{block.length()} bytes, \{mine.params().length()} of them",
   )
-  guard @conn.decode(block[:]) is Some(back) else { return }
+  let back = @conn.decode(block[:]) catch { _ => return }
   println("read back          \{@conn.Limits::read(back[:]) == mine}")
   // Everything the block leaves out keeps RFC 9000 §18.2's default.
   println(

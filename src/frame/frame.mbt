@@ -241,10 +241,9 @@ fn read_ack(
 }
 
 ///|
-/// Read one frame at the start of `b`, returning it and the bytes it occupied, or
-/// `None` on a truncated frame or a type this brick does not yet decode. A PADDING
-/// frame absorbs the whole run of leading zero bytes.
-pub fn decode(b : BytesView) -> (Frame, Int32)? {
+/// Read one frame at the start of `b`, returning it and the bytes it occupied, or `None` on a
+/// truncated frame or a type this codec does not know. `decode` is the strict face of this.
+fn decode_opt(b : BytesView) -> (Frame, Int32)? {
   guard @quic.decode(b) is Some((ftype, tlen)) else { return None }
   match ftype {
     0UL => {
@@ -476,6 +475,21 @@ pub fn decode(b : BytesView) -> (Frame, Int32)? {
       Some((Datagram(data~), off))
     }
     _ => None
+  }
+}
+
+///|
+/// Read one frame at the start of `b`, returning it and the bytes it occupied, or raise
+/// `Refused` when it is truncated or of a type this codec does not know. A PADDING frame
+/// absorbs the whole run of leading zero bytes.
+///
+/// This is the strict face; a caller that would rather branch on the outcome can keep the
+/// `Option` form, but the connection reads payloads through this so a malformed frame is one
+/// error path rather than two.
+pub fn decode(b : BytesView) -> (Frame, Int32) raise Refused {
+  match decode_opt(b) {
+    Some(frame) => frame
+    None => raise Malformed("truncated or unknown frame")
   }
 }
 

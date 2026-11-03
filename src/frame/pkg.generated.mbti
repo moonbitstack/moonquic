@@ -6,7 +6,7 @@ import {
 }
 
 // Values
-pub fn decode(BytesView) -> (Frame, Int32)?
+pub fn decode(BytesView) -> (Frame, Int32) raise Refused
 
 pub fn elicits_ack(Frame) -> Bool
 

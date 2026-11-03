@@ -26,9 +26,11 @@ fn run() -> Unit raise {
   ]
   for f in frames {
     let enc = @frame.encode(f)
-    let ok = match @frame.decode(enc[:]) {
-      Some((g, _)) => g == f
-      None => false
+    let ok = try {
+      let (g, _) = @frame.decode(enc[:])
+      g == f
+    } catch {
+      _ => false
     }
     println(
       "\{pad(hex(enc))} round-trip=\{ok} ack-eliciting=\{@frame.elicits_ack(f)}",

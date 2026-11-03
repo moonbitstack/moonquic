@@ -603,16 +603,15 @@ pub fn read_payload(payload : Bytes) -> Array[@frame.Frame] raise Refused {
   let view = payload[:]
   let mut off = 0
   while off < view.length() {
-    match @frame.decode(view[off:]) {
-      Some((frame, consumed)) => {
-        if consumed <= 0 {
-          raise Malformed("frame consumed no bytes")
-        }
-        frames.push(frame)
-        off += consumed
-      }
-      None => raise Malformed("truncated or unknown frame in payload")
+    let pair = @frame.decode(view[off:]) catch {
+      _ => raise Malformed("truncated or unknown frame in payload")
     }
+    let (frame, consumed) = pair
+    if consumed <= 0 {
+      raise Malformed("frame consumed no bytes")
+    }
+    frames.push(frame)
+    off += consumed
   }
   frames
 }

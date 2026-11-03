@@ -71,7 +71,7 @@ test "transport parameters round-trip and integer values read back" {
     Param::int(MaxUdpPayload, 1472UL),
   ]
   let encoded = encode(params)
-  match decode(encoded[:]) {
+  match decode_opt(encoded[:]) {
     Some(got) => {
       assert_eq(got.length(), 3)
       assert_eq(got[0].kind, MaxIdleTimeout)
@@ -85,7 +85,7 @@ test "transport parameters round-trip and integer values read back" {
 ///|
 test "a truncated transport-parameter block decodes to None" {
   // id 04, length 04, but only two value bytes supplied.
-  assert_eq(decode(qv_hexb("04048010")[:]) is None, true)
+  assert_eq(decode_opt(qv_hexb("04048010")[:]) is None, true)
 }
 
 ///|
@@ -1140,7 +1140,7 @@ test "the limits a block sets, and the block those limits amount to" {
   assert_eq(block.length(), 5)
   assert_eq(Limits::read(block[:]), mine)
   // And through the wire form as well.
-  guard decode(encode(block[:])[:]) is Some(back) else {
+  guard decode_opt(encode(block[:])[:]) is Some(back) else {
     fail("a block this library wrote should read back")
   }
   assert_eq(Limits::read(back[:]), mine)
@@ -1169,10 +1169,10 @@ test "a truncated block reads as nothing rather than as half of itself" {
   let good = encode(
     [Param::int(MaxData, 1000000), Param::int(MaxStreamsBidi, 8)][:],
   )
-  assert_eq(decode(good[:]).unwrap().length(), 2)
+  assert_eq(decode_opt(good[:]).unwrap().length(), 2)
   for cut = 1; cut < good.length(); cut = cut + 1 {
     let short = good[0:cut].to_owned()
-    match decode(short[:]) {
+    match decode_opt(short[:]) {
       Some(params) =>
         // A prefix that happens to end on a parameter boundary is a valid shorter
         // block; anything else must not parse.

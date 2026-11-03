@@ -198,7 +198,7 @@ fn[A] Session::adopt_declared(
   now : Int64,
 ) -> Unit {
   guard tls.peer_params() is Some(raw) else { return }
-  guard decode(raw[:]) is Some(params) else {
+  guard decode_opt(raw[:]) is Some(params) else {
     return self.close(transport_parameter_error, b"", now)
   }
   match find(params[:], InitialScid) {
@@ -263,9 +263,16 @@ fn[A] Session::assemble(self : Session[A], now : Int64) -> Unit raise {
       outbox.deadline = now + (self.sender.recovery.pto() << outbox.backoff)
     }
     let payload = @packet.payload(frames)
-    floor = floor || (level == Level::Initial && run is Some(_))
+    // An Initial datagram is padded to the 1200-byte floor even when it carries only an
+    // ACK: RFC 9000 §14.1 requires it of ack-eliciting ones and permits it of the rest, and
+    // a peer that cannot yet answer a split hello still expects a full-size first datagram.
+    floor = floor || level == Level::Initial
     used = used + payload.length() + cost
     planned.push((level, payload, pn))
+    // One encryption level per datagram. A Handshake packet cannot be read until the
+    // ServerHello is whole, and the keys come from it; coalescing the two lets a large
+    // post-quantum ServerHello hand the peer a packet it has no keys for.
+    break
   }
   guard planned.length() > 0 else { return self.next_app_packet(now) }
   let datagram = Buffer()

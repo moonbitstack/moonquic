@@ -215,7 +215,20 @@ fn Peer::absorb(self : Peer) -> Unit {
     match step {
       Send(level, data) => {
         let at = index(level)
-        out.push(self.packet(level, [Crypto(offset=offsets[at], data~)]))
+        // A run longer than one packet — a post-quantum ClientHello — goes out as several,
+        // each inside a datagram, at successive CRYPTO offsets.
+        let mut off = 0
+        while off < data.length() {
+          let left = data.length() - off
+          let take = if left > 1100 { 1100 } else { left }
+          let chunk = data[off:off + take].to_owned()
+          out.push(
+            self.packet(level, [
+              Crypto(offset=offsets[at] + off.to_uint64(), data=chunk),
+            ]),
+          )
+          off = off + take
+        }
         offsets[at] = offsets[at] + data.length().to_uint64()
       }
       Keys(level, client~, server~) => {

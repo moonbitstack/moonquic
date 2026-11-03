@@ -137,9 +137,32 @@ pub fn encode(params : ArrayView[Param]) -> Bytes {
 }
 
 ///|
+/// A malformed transport-parameter block: a truncated parameter, or a length running past the
+/// block. `decode` raises it rather than answering with an empty list, so a caller cannot
+/// mistake a broken block for a peer that declared nothing.
+#derive(Eq)
+pub(all) suberror Refused {
+  Malformed(String)
+}
+
+///|
+/// A refused block prints as the fault it is.
+pub impl Show for Refused with fn output(self, logger) {
+  match self {
+    Malformed(m) => logger.write_string("Malformed(" + m + ")")
+  }
+}
+
+///|
+pub extend Refused with Show::{to_string, output}
+
+///|
+pub extend Refused with Eq::{not_equal, equal}
+
+///|
 /// Decode a block, keeping the order and any duplicates so the caller can apply
-/// RFC 9000 §7.4's rules itself. `None` on a truncated parameter.
-pub fn decode(b : BytesView) -> Array[Param]? {
+/// RFC 9000 §7.4's rules itself. `None` on a truncated parameter; `decode` is the strict face.
+fn decode_opt(b : BytesView) -> Array[Param]? {
   let out : Array[Param] = []
   let mut at = 0
   while at < b.length() {
@@ -155,6 +178,16 @@ pub fn decode(b : BytesView) -> Array[Param]? {
     at = at + n
   }
   Some(out)
+}
+
+///|
+/// Decode a block, or raise `Refused` when a parameter is truncated. The strict face of
+/// `decode_opt`, and what the connection reads a peer's block through.
+pub fn decode(b : BytesView) -> Array[Param] raise Refused {
+  match decode_opt(b) {
+    Some(params) => params
+    None => raise Malformed("truncated transport parameter")
+  }
 }
 
 ///|
@@ -348,7 +381,7 @@ pub extend Limits with Eq::{not_equal, equal}
 pub fn of_extensions(extensions : ArrayView[@ext.Ext]) -> Array[Param] {
   match @ext.find(extensions, QuicTransportParameters) {
     Some(e) =>
-      match decode(e.data[:]) {
+      match decode_opt(e.data[:]) {
         Some(params) => params
         None => []
       }

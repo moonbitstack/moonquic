@@ -11,7 +11,7 @@ test "a datagram round-trips through the length-prefixed form" {
   // 0x31, then a one-byte length of 5, then the bytes.
   assert_eq(wire[0], b'\x31')
   assert_eq(wire[1], b'\x05')
-  match decode(wire[:]) {
+  match decode_opt(wire[:]) {
     Some((got, used)) => {
       assert_eq(got, frame)
       assert_eq(used, wire.length())
@@ -23,7 +23,7 @@ test "a datagram round-trips through the length-prefixed form" {
 ///|
 test "a datagram without a length runs to the end of the packet" {
   let wire = b"\x30hello"
-  match decode(wire[:]) {
+  match decode_opt(wire[:]) {
     Some((Datagram(data~), used)) => {
       assert_eq(data, b"hello")
       assert_eq(used, wire.length())
@@ -35,7 +35,7 @@ test "a datagram without a length runs to the end of the packet" {
 ///|
 test "a truncated datagram is refused" {
   // The length says five bytes but only two follow.
-  assert_eq(decode(b"\x31\x05hi"[:]) is None, true)
+  assert_eq(decode_opt(b"\x31\x05hi"[:]) is None, true)
 }
 
 ///|

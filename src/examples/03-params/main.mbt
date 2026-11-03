@@ -15,16 +15,16 @@ fn main {
   ]
   let enc = @conn.encode(params)
   println("encoded = \{hex(enc)}")
-  match @conn.decode(enc[:]) {
-    Some(got) => {
-      println("decoded \{got.length()} parameters:")
-      for p in got {
-        println(
-          "  id=\{p.kind.code().to_string()} value=\{opt_u(@conn.Param::as_int(p))}",
-        )
-      }
+  try {
+    let got = @conn.decode(enc[:])
+    println("decoded \{got.length()} parameters:")
+    for p in got {
+      println(
+        "  id=\{p.kind.code().to_string()} value=\{opt_u(@conn.Param::as_int(p))}",
+      )
     }
-    None => println("decode failed")
+  } catch {
+    _ => println("decode failed")
   }
 }
 
