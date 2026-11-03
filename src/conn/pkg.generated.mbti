@@ -52,6 +52,32 @@ pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 // Errors
 
 // Types and methods
+pub struct Client {
+  tls : @tls.Conn
+  scid : Bytes
+  mut dcid : Bytes
+  initial_tx : @crypto.Keys
+  initial_rx : @crypto.Keys
+  mut hs_tx : @crypto.Keys?
+  mut hs_rx : @crypto.Keys?
+  mut app_tx : @crypto.Keys?
+  mut app_rx : @crypto.Keys?
+  mut suite : @crypto.Suite
+  core : Conn
+  offsets : Array[Int64]
+  out : Array[(Level, Int64, Bytes)]
+  mut seen_server_cid : Bool
+  received : Array[@frame.Frame]
+}
+pub fn Client::alpn(Self) -> String?
+pub fn Client::frames(Self) -> Array[@frame.Frame]
+pub fn Client::is_connected(Self) -> Bool
+pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64) -> Self raise
+pub fn Client::poll_out(Self, Int64) -> Array[Bytes]
+pub fn Client::recv(Self, Bytes, Int64) -> Unit raise
+pub fn Client::server_cid(Self) -> Bytes
+pub fn Client::suite_code(Self) -> Int32
+
 pub(all) struct Config {
   version : UInt32
   idle_timeout : Int64
