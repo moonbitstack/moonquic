@@ -2,9 +2,10 @@
 // https://www.rfc-editor.org/rfc/rfc9000#section-7
 //
 // The transport parameters an endpoint declares (§18), the three packet-number spaces
-// and the CRYPTO stream per encryption level (§12.3, RFC 9001 §4.1.3), a server
-// connection driving the TLS handshake, and the connection table and event loop a
-// server runs over them (§5.2, §8.1, §10, §14.1).
+// and the CRYPTO stream per encryption level (§12.3, RFC 9001 §4.1.3), the client and
+// server handshakes, the connection table and event loop a server runs over them
+// (§5.2, §8.1, §10, §14.1), path validation and migration (§9), stateless reset
+// (§10.3), and RFC 9221 datagrams.
 //
 // It holds no socket and no clock: the peer's address is a type parameter, every entry
 // point takes `now`, and the signing key arrives as a `@spec.Signer` the caller keeps.

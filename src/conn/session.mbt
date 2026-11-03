@@ -12,8 +12,8 @@
 // address is a type parameter and every entry point takes `now`, so the tests drive it with a
 // fake sink on an injected clock and `quic_serve.native.mbt` drives it with a UDP socket.
 //
-// Version negotiation, stateless reset, connection migration, path validation and coalesced
-// packets (more than one QUIC packet in a datagram) are not implemented here.
+// Path validation and migration (§9), stateless reset (§10.3) and coalesced packets (§12.2)
+// are here; 0-RTT is not.
 
 ///|
 /// Where a connection is in its lifecycle (RFC 9000 §10.2): exchanging packets, closing —
