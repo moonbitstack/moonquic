@@ -1,6 +1,6 @@
 name = "moonbitstack/moonquic"
 
-version = "0.3.10"
+version = "0.3.11"
 
 readme = "README.md"
 
@@ -43,7 +43,7 @@ import {
   "moonbitstack/moontls@0.9.14",
   "moonbitstack/mooncred@0.6.9",
   "moonbitstack/mooncrypt@0.4.11",
-  "moonbitstack/moonvar@0.2.0",
+  "moonbitstack/moonvar@0.2.1",
 }
 
 source = "src"
