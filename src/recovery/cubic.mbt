@@ -202,3 +202,15 @@ pub extend Cubic with Control::{
   on_persistent,
   on_rtt,
 }
+
+///|
+impl Control for Cubic with fn on_new_path(self) {
+  let fresh = Cubic::new(policy=self.policy)
+  self.window = fresh.window
+  self.ssthresh = fresh.ssthresh
+  self.recovery = fresh.recovery
+  self.w_max = fresh.w_max
+  self.epoch = fresh.epoch
+  self.k = fresh.k
+  self.rtt = fresh.rtt
+}

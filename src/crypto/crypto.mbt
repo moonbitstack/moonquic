@@ -163,11 +163,23 @@ pub fn Version::new(
 ///|
 /// One direction's packet-protection keys (RFC 9001 §5.1): the AEAD key, the IV each
 /// packet's nonce is built from, and the header-protection key.
-#derive(Eq, Debug)
 pub(all) struct Keys {
   key : Bytes
   iv : Bytes
   hp : Bytes
+  suite : Suite
+}
+
+///|
+/// Keys are equal when their material is. A suite holds functions, which have no equality, and
+/// the same bytes under two suites do not arise: the suite sets the lengths and the expansion.
+pub impl Eq for Keys with fn equal(self, other) {
+  self.key == other.key && self.iv == other.iv && self.hp == other.hp
+}
+
+///|
+pub impl @debug.Debug for Keys with fn to_repr(self) {
+  @debug.Repr((self.key, self.iv, self.hp))
 }
 
 ///|
@@ -185,6 +197,7 @@ pub fn Keys::of(
     key: expand(version.key, suite.key),
     iv: expand(version.iv, suite.iv),
     hp: expand(version.hp, suite.hp),
+    suite,
   }
 }
 
@@ -321,12 +334,8 @@ pub fn Keys::nonce(self : Keys, number : Int64) -> Bytes {
 
 ///|
 /// The header-protection mask for a ciphertext sample (RFC 9001 §5.4.2).
-pub fn Keys::mask(
-  self : Keys,
-  sample : BytesView,
-  suite~ : Suite = suite,
-) -> Bytes {
-  (suite.mask)(self.hp, sample)
+pub fn Keys::mask(self : Keys, sample : BytesView) -> Bytes {
+  (self.suite.mask)(self.hp, sample)
 }
 
 ///|
@@ -354,9 +363,8 @@ pub fn Keys::protect(
   packet : BytesView,
   at~ : Int32,
   size~ : Int32,
-  suite~ : Suite = suite,
 ) -> Bytes {
-  let mask = self.mask(packet[at + 4:at + 4 + sample], suite~)
+  let mask = self.mask(packet[at + 4:at + 4 + sample])
   let out = bytes(packet)
   out[0] = out[0] ^ (mask[0].to_int() & masked(out[0]))
   for i = 0; i < size; i = i + 1 {
@@ -373,9 +381,8 @@ pub fn Keys::unprotect(
   self : Keys,
   packet : BytesView,
   at~ : Int32,
-  suite~ : Suite = suite,
 ) -> (Bytes, Int32) {
-  let mask = self.mask(packet[at + 4:at + 4 + sample], suite~)
+  let mask = self.mask(packet[at + 4:at + 4 + sample])
   let first = packet[0].to_int() ^
     (mask[0].to_int() & masked(packet[0].to_int()))
   let size = (first & 0x03) + 1
@@ -399,10 +406,9 @@ pub fn Keys::seal(
   header : BytesView,
   payload : BytesView,
   number~ : Int64,
-  suite~ : Suite = suite,
 ) -> Bytes {
   let size = (header[0].to_int() & 0x03) + 1
-  let body = (suite.aead)(self.key).seal(
+  let body = (self.suite.aead)(self.key).seal(
     nonce=self.nonce(number)[:],
     plain=payload,
     aad=header,
@@ -410,7 +416,7 @@ pub fn Keys::seal(
   let buf = Buffer()
   buf.write_bytes(header)
   buf.write_bytes(body)
-  self.protect(buf.to_bytes()[:], at=header.length() - size, size~, suite~)
+  self.protect(buf.to_bytes()[:], at=header.length() - size, size~)
 }
 
 ///|
@@ -434,7 +440,6 @@ pub fn Keys::open(
   packet : BytesView,
   largest~ : Int64,
   at? : Int32,
-  suite~ : Suite = suite,
 ) -> (Bytes, Int64)? {
   let long = packet.length() > 0 && (packet[0].to_int() & 0x80) != 0
   let tail = if long { @packet.read_header(packet) } else { None }
@@ -449,7 +454,7 @@ pub fn Keys::open(
   if at < 0 || packet.length() < at + 4 + sample {
     return None
   }
-  let (recovered, size) = self.unprotect(packet, at~, suite~)
+  let (recovered, size) = self.unprotect(packet, at~)
   // `unprotect` has just read these bytes, so the read cannot come up short.
   let truncated = @fixed.read_uint(recovered[:], at~, size~)
     .unwrap()
@@ -465,7 +470,7 @@ pub fn Keys::open(
   if from > stop || stop > recovered.length() {
     return None
   }
-  let plain = (suite.aead)(self.key).open(
+  let plain = (self.suite.aead)(self.key).open(
     nonce=self.nonce(number)[:],
     cipher=recovered[from:stop],
     aad=recovered[0:from],

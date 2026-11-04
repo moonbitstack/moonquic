@@ -40,9 +40,9 @@ keywords = [
 description = "QUIC transport for MoonBit."
 
 import {
-  "moonbitstack/moontls@0.9.12",
-  "moonbitstack/mooncred@0.6.7",
-  "moonbitstack/mooncrypt@0.4.8",
+  "moonbitstack/moontls@0.9.14",
+  "moonbitstack/mooncred@0.6.9",
+  "moonbitstack/mooncrypt@0.4.11",
   "moonbitstack/moonvar@0.2.0",
 }
 

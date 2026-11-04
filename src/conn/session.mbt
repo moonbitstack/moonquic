@@ -55,6 +55,9 @@ pub(all) struct Config {
   /// The largest DATAGRAM frame this endpoint will receive (RFC 9221 §3); zero, the
   /// default, means it does not support them and will not advertise the parameter.
   max_datagram_frame_size : UInt64
+  /// How many connection ids a peer may hold at once, the handshake's among them, however many it
+  /// says it will take (RFC 9000 §5.1.1). Four is quic-go's default, and one offers no spares.
+  connection_ids : UInt64
 }
 
 ///|
@@ -64,6 +67,14 @@ let crypto_buffer_exceeded : UInt64 = 0x0dUL
 ///|
 /// TRANSPORT_PARAMETER_ERROR, RFC 9000 §20.1.
 let transport_parameter_error : UInt64 = 0x08UL
+
+///|
+/// PROTOCOL_VIOLATION (RFC 9000 §20.1).
+let protocol_violation : UInt64 = 0x0aUL
+
+///|
+/// FRAME_ENCODING_ERROR (RFC 9000 §20.1).
+let frame_encoding_error : UInt64 = 0x07UL
 
 ///|
 /// The base of the CRYPTO_ERROR codes: a TLS alert closes a connection with this plus its
@@ -98,6 +109,7 @@ pub fn Config::default() -> Config {
     streams_bidi: 100UL,
     streams_uni: 100UL,
     max_datagram_frame_size: 0UL,
+    connection_ids: 4UL,
   }
 }
 
@@ -139,7 +151,7 @@ fn pad(payload : Bytes, build : (Bytes) -> Bytes, min : Int32) -> Bytes {
 pub struct Session[A] {
   mut peer : A
   cid : Bytes
-  peer_cid : Bytes
+  mut peer_cid : Bytes
   core : Server
   sender : Sender
   cfg : Config
@@ -166,6 +178,7 @@ pub struct Session[A] {
   priv datagrams : Array[Bytes]
   priv initial_out : Outbox
   priv handshake_out : Outbox
+  priv mut app_crypto_at : UInt64
   priv mut suite : @crypto.Suite
   priv mut app_rx_secret : Bytes
   priv mut app_tx_secret : Bytes
@@ -176,6 +189,9 @@ pub struct Session[A] {
   priv mut next_uni : UInt64
   path : Path
   mut zero_rtt_rx : @crypto.Keys?
+  priv mut moved : Moved[A]?
+  priv probes : Array[(Bytes, A)]
+  priv ids : Ids
 }
 
 ///|
@@ -243,6 +259,7 @@ fn[A] Session::new(
     datagrams: [],
     initial_out: Outbox::new(),
     handshake_out: Outbox::new(),
+    app_crypto_at: 0UL,
     suite: @crypto.suite,
     app_rx_secret: b"",
     app_tx_secret: b"",
@@ -252,6 +269,9 @@ fn[A] Session::new(
     confirmed: false,
     next_uni: 0UL,
     path: Path::new(),
+    moved: None,
+    probes: [],
+    ids: Ids::new(),
     zero_rtt_rx: None,
   }
 }
@@ -478,7 +498,6 @@ fn[A] Session::seal(
         4,
         payload,
         k,
-        suite=self.suite,
       )
     }
     Application => {
@@ -490,7 +509,7 @@ fn[A] Session::seal(
         pn_length: 4,
         dcid: self.peer_cid,
       }
-      k.seal(h.header(pn_bytes[:])[:], payload[:], number=pn, suite=self.suite)
+      k.seal(h.header(pn_bytes[:])[:], payload[:], number=pn)
     }
   }
 }
@@ -594,16 +613,11 @@ fn[A : Eq] Session::on_datagram(
   nonce : Bytes,
   now : Int64,
 ) -> Unit raise {
-  // A 1-RTT packet from an address other than the one the connection is on begins a move
-  // (RFC 9000 §9). The new path is challenged; it is not trusted until the challenge comes
-  // back as a PATH_RESPONSE.
-  if self.phase == Active && self.app_rx is Some(_) && from != self.peer {
-    let challenge = self.path.start(nonce)
-    self.peer = from
-    self.sender.queue_control(PathChallenge(challenge))
+  // What counts against this path's budget is what came from it (RFC 9000 §8.1). The address on
+  // the datagram proves nothing until a packet inside has authenticated.
+  if from == self.peer {
+    self.rx = self.rx + datagram.length().to_int64()
   }
-  self.rx = self.rx + datagram.length().to_int64()
-  self.last_rx = now
   self.packets = self.packets + 1
   // A datagram may carry several packets, each long header giving its length; a short header
   // runs to the end (RFC 9000 §12.2).
@@ -611,7 +625,7 @@ fn[A : Eq] Session::on_datagram(
   while at < datagram.length() && self.phase != Draining {
     let view = datagram[at:]
     if (view[0].to_int() & 0x80) == 0 {
-      self.on_app(view.to_owned(), now)
+      self.on_app(view.to_owned(), from, nonce, datagram.length(), now)
       break
     }
     guard @packet.read_header(view) is Some((h, tail)) else { break }
@@ -647,6 +661,7 @@ fn[A] Session::on_initial(
   // A datagram that does not authenticate is discarded, not an error: an endpoint cannot
   // tell a corrupted packet from an injected one (RFC 9000 §12.2).
   guard opened is Some((frames, pn)) else { return }
+  self.last_rx = now
   match self.tls {
     Some(tls) => {
       guard !space.seen(pn) else { return }
@@ -668,15 +683,11 @@ fn[A] Session::on_handshake(
 ) -> Unit raise {
   guard self.hs_rx is Some(keys) && !self.handshake_gone else { return }
   let space = self.core.conn.space(Level::Handshake)
-  let opened = recv_long(
-    datagram,
-    keys,
-    largest=space.largest_received(),
-    suite=self.suite,
-  ) catch {
+  let opened = recv_long(datagram, keys, largest=space.largest_received()) catch {
     _ => None
   }
   guard opened is Some((frames, pn)) else { return }
+  self.last_rx = now
   // A Handshake packet the peer could only have sent from the address it claims proves that
   // address, which lifts the amplification limit (RFC 9000 §8.1).
   self.validated = true
@@ -706,15 +717,11 @@ fn[A] Session::on_zero_rtt(
 ) -> Unit raise {
   guard self.zero_rtt_rx is Some(keys) else { return }
   let space = self.core.conn.space(Level::Application)
-  let opened = recv_long(
-    packet,
-    keys,
-    largest=space.largest_received(),
-    suite=self.suite,
-  ) catch {
+  let opened = recv_long(packet, keys, largest=space.largest_received()) catch {
     _ => None
   }
   guard opened is Some((frames, pn)) else { return }
+  self.last_rx = now
   guard !space.seen(pn) else { return }
   self.core.conn.on_packet_received(
     Level::Application,
@@ -725,9 +732,12 @@ fn[A] Session::on_zero_rtt(
 }
 
 ///|
-fn[A] Session::on_app(
+fn[A : Eq] Session::on_app(
   self : Session[A],
   datagram : Bytes,
+  from : A,
+  nonce : Bytes,
+  size : Int32,
   now : Int64,
 ) -> Unit raise {
   guard self.app_rx is Some(keys) else { return }
@@ -737,16 +747,25 @@ fn[A] Session::on_app(
     return
   }
   let space = self.core.conn.space(Level::Application)
-  let opened = self.open_app(datagram, keys, space.largest_received())
+  let largest = space.largest_received()
+  let addressed = datagram[1:1 + self.cid.length()].to_owned()
+  let opened = self.open_app(datagram, keys, largest)
   guard opened is Some((frames, pn)) else { return }
   if self.tls is Some(_) && space.seen(pn) {
     return
   }
+  self.last_rx = now
   self.core.conn.on_packet_received(
     Level::Application,
     pn,
     @packet.payload_elicits_ack(frames),
   )
+  let frames = if from == self.peer {
+    frames
+  } else {
+    self.on_other_path(frames, pn > largest, from, addressed, nonce, size, now)
+  }
+  self.ids.heard_on = addressed
   self.on_frames(Level::Application, frames, now)
 }
 
@@ -806,12 +825,16 @@ fn[A] Session::on_frames(
             self.events.push(Event::Datagram)
           }
         }
+      NewConnectionId(seq~, retire_prior_to~, conn_id~, reset_token~) if live =>
+        self.on_new_id(seq, retire_prior_to, conn_id, reset_token, now)
+      RetireConnectionId(seq) if live => self.on_retire_id(seq, now)
       PathChallenge(data) if live =>
-        self.sender.queue_control(PathResponse(data))
-      PathResponse(data) if live => {
+        self.probe([PathResponse(data)], self.peer, self.budget())
+      PathResponse(data) if live =>
         // The path is proven once the challenge comes back unchanged (RFC 9000 §8.2).
-        let _ = self.path.check(data)
-      }
+        if self.path.check(data) {
+          self.on_path_proven()
+        }
       _ => ()
     }
   }

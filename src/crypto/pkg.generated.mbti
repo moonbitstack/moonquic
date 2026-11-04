@@ -47,22 +47,24 @@ pub fn zero_rtt(BytesView, suite? : Suite, version? : Version) -> Keys
 // Errors
 
 // Types and methods
-#derive(Eq, @debug.Debug)
 pub(all) struct Keys {
   key : Bytes
   iv : Bytes
   hp : Bytes
+  suite : Suite
 }
 pub fn Keys::equal(Self, Self) -> Bool
-pub fn Keys::mask(Self, BytesView, suite? : Suite) -> Bytes
+pub fn Keys::mask(Self, BytesView) -> Bytes
 pub fn Keys::nonce(Self, Int64) -> Bytes
 pub fn Keys::not_equal(Self, Self) -> Bool
 pub fn Keys::of(BytesView, suite? : Suite, version? : Version) -> Self
-pub fn Keys::open(Self, BytesView, largest~ : Int64, at? : Int32, suite? : Suite) -> (Bytes, Int64)?
-pub fn Keys::protect(Self, BytesView, at~ : Int32, size~ : Int32, suite? : Suite) -> Bytes
-pub fn Keys::seal(Self, BytesView, BytesView, number~ : Int64, suite? : Suite) -> Bytes
+pub fn Keys::open(Self, BytesView, largest~ : Int64, at? : Int32) -> (Bytes, Int64)?
+pub fn Keys::protect(Self, BytesView, at~ : Int32, size~ : Int32) -> Bytes
+pub fn Keys::seal(Self, BytesView, BytesView, number~ : Int64) -> Bytes
 pub fn Keys::to_repr(Self) -> @debug.Repr
-pub fn Keys::unprotect(Self, BytesView, at~ : Int32, suite? : Suite) -> (Bytes, Int32)
+pub fn Keys::unprotect(Self, BytesView, at~ : Int32) -> (Bytes, Int32)
+pub impl Eq for Keys
+pub impl @debug.Debug for Keys
 
 pub(all) struct Suite {
   digest : @keys.Digest

@@ -106,8 +106,12 @@ fn tls_level(level : Level) -> @tls.Level {
 
 ///|
 /// The transport parameters this server declares for a connection (RFC 9000 §18.2).
-/// `disable_active_migration` is set because this library has no path validation yet.
-fn declared(cfg : Config, original : Bytes, cid : Bytes) -> Bytes {
+fn declared(
+  cfg : Config,
+  original : Bytes,
+  cid : Bytes,
+  token : Bytes,
+) -> Bytes {
   let limits = Limits::new(
     idle_timeout=(cfg.idle_timeout / 1000L).reinterpret_as_uint64(),
     data=cfg.initial_max_data,
@@ -122,7 +126,33 @@ fn declared(cfg : Config, original : Bytes, cid : Bytes) -> Bytes {
   let params = limits.params()
   params.push({ kind: OriginalDcid, value: original, })
   params.push({ kind: InitialScid, value: cid, })
+  // Without this a reset this endpoint sends means nothing to the peer (RFC 9000 §10.3).
+  params.push({ kind: StatelessResetToken, value: token, })
   encode(params[:])
+}
+
+///|
+/// How much of an application-level CRYPTO run goes in one frame: small enough to share a packet.
+let app_crypto_chunk : Int32 = 1000
+
+///|
+/// What TLS says after the handshake, which is a server's tickets (RFC 9001 §4.1.3). It goes in
+/// 1-RTT packets as control frames, so a lost one is sent again, and not through the handshake's
+/// outbox, which is thrown away the moment the handshake is confirmed.
+fn[A] Session::send_app_crypto(self : Session[A], data : Bytes) -> Unit {
+  let mut at = 0
+  while at < data.length() {
+    let end = if data.length() - at > app_crypto_chunk {
+      at + app_crypto_chunk
+    } else {
+      data.length()
+    }
+    self.sender.queue_control(
+      Crypto(offset=self.app_crypto_at, data=data[at:end].to_owned()),
+    )
+    self.app_crypto_at = self.app_crypto_at + (end - at).to_uint64()
+    at = end
+  }
 }
 
 ///|
@@ -167,7 +197,8 @@ fn[A] Session::on_crypto(
   for step in tls.steps() {
     match step {
       Send(Initial, data) => self.initial_out.write(data)
-      Send(_, data) => self.handshake_out.write(data)
+      Send(Handshake, data) => self.handshake_out.write(data)
+      Send(Application, data) => self.send_app_crypto(data)
       Keys(Handshake, client~, server~) => {
         if tls.suite() is Some(suite) {
           self.suite = suite_of(suite)
@@ -178,6 +209,10 @@ fn[A] Session::on_crypto(
       Keys(Application, client~, server~) =>
         self.install_app_keys(client, server)
       Keys(_, ..) => ()
+      Early(secret~, suite~) =>
+        self.install_zero_rtt(
+          @crypto.zero_rtt(secret[:], suite=suite_of(suite)),
+        )
     }
   }
   if tls.is_connected() && !self.confirmed {
@@ -207,6 +242,7 @@ fn[A] Session::adopt_declared(
   }
   self.apply_peer_params(params)
   let peer = Limits::read(params[:])
+  self.ids.limit = peer.active_connection_ids
   // The peer's limits name streams by who opened them, so what limits a response on a stream the
   // client opened is the client's bidi_local (RFC 9000 §18.2).
   self.sender.sched.on_params(
@@ -314,6 +350,18 @@ fn[A] Session::next_app_packet(self : Session[A], now : Int64) -> Unit raise {
 }
 
 ///|
+/// One direction's next key phase (RFC 9001 §6.1): the secret after this one and its keys. The
+/// header-protection key is the one thing that does not change.
+fn roll(
+  secret : Bytes,
+  keys : @crypto.Keys,
+  suite : @crypto.Suite,
+) -> (Bytes, @crypto.Keys) {
+  let (next, rolled) = @crypto.next(secret[:], suite~)
+  (next, { ..rolled, hp: keys.hp, })
+}
+
+///|
 /// A short-header packet's frames. One that does not open under the current keys may be the first
 /// under the next phase (RFC 9001 §6): only a real packet opens under those, so one that does
 /// settles it, and the keys in both directions move on. The header-protection key stays.
@@ -324,26 +372,15 @@ fn[A] Session::open_app(
   largest : Int64,
 ) -> (Array[@frame.Frame], Int64)? {
   let n = self.cid.length()
-  let opened = recv_short(packet, n, keys, largest~, suite=self.suite) catch {
-    _ => None
-  }
+  let opened = recv_short(packet, n, keys, largest~) catch { _ => None }
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
-  let (rx_secret, rolled) = @crypto.next(
-    self.app_rx_secret[:],
-    suite=self.suite,
-  )
-  let next = { ..rolled, hp: keys.hp, }
-  let moved = recv_short(packet, n, next, largest~, suite=self.suite) catch {
-    _ => None
-  }
+  let (rx_secret, next) = roll(self.app_rx_secret, keys, self.suite)
+  let moved = recv_short(packet, n, next, largest~) catch { _ => None }
   guard moved is Some(_) && self.app_tx is Some(tx) else { return None }
-  let (tx_secret, written) = @crypto.next(
-    self.app_tx_secret[:],
-    suite=self.suite,
-  )
+  let (tx_secret, written) = roll(self.app_tx_secret, tx, self.suite)
   self.app_rx = Some(next)
   self.app_rx_secret = rx_secret
-  self.app_tx = Some({ ..written, hp: tx.hp, })
+  self.app_tx = Some(written)
   self.app_tx_secret = tx_secret
   self.key_phase = !self.key_phase
   moved

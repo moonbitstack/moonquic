@@ -139,6 +139,7 @@ pub fn Rtt::latest(Self) -> Int64
 pub fn Rtt::min(Self) -> Int64
 pub fn Rtt::new() -> Self
 pub fn Rtt::pto(Self, policy? : Policy) -> Int64
+pub fn Rtt::reset(Self) -> Unit
 pub fn Rtt::sample(Self, Int64, ack_delay~ : Int64, policy? : Policy) -> Unit
 pub fn Rtt::sampled(Self) -> Bool
 pub fn Rtt::smoothed(Self) -> Int64
@@ -167,6 +168,7 @@ pub fn State::can_send(Self, Int64) -> Bool
 pub fn State::in_flight(Self) -> Int64
 pub fn State::new(policy? : Policy, control? : &Control) -> Self
 pub fn State::on_ack(Self, @frame.Frame, Int64, ack_delay~ : Int64) -> Array[Int64] raise @frame.Refused
+pub fn State::on_new_path(Self) -> Unit
 pub fn State::on_pto(Self) -> Unit
 pub fn State::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
 pub fn State::outstanding(Self) -> Array[Int64]
@@ -189,4 +191,5 @@ pub(open) trait Control {
   fn on_persistent(Self) -> Unit
   fn on_ack_at(Self, Int64, now~ : Int64) -> Unit = _
   fn on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit = _
+  fn on_new_path(Self) -> Unit = _
 }

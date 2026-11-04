@@ -79,6 +79,16 @@ pub fn Rtt::new() -> Rtt {
 }
 
 ///|
+/// Back to no sample, for a path nothing is known about.
+pub fn Rtt::reset(self : Rtt) -> Unit {
+  self.latest = 0
+  self.min = 0
+  self.smoothed = 0
+  self.variation = 0
+  self.sampled = false
+}
+
+///|
 /// Fold in a round-trip sample (RFC 9002 §5.3).
 ///
 /// `ack_delay` is what the peer said it waited before acknowledging; it is capped at the
@@ -327,6 +337,10 @@ pub(open) trait Control {
   /// bandwidth-delay product (BBR) needs the smallest round trip seen; the default
   /// ignores it.
   fn on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit = _
+  /// The connection moved to a path nothing is known about (RFC 9000 §9.4): what the controller
+  /// learned is about the old one, and only what is in flight carries over. The default keeps
+  /// everything, so a controller outside this library is no worse than it was.
+  fn on_new_path(Self) -> Unit = _
 }
 
 ///|
@@ -343,6 +357,11 @@ impl Control with fn on_ack_at(self, size, now~) {
 impl Control with fn on_rtt(_, sample~, now~) {
   ignore(sample)
   ignore(now)
+}
+
+///|
+impl Control with fn on_new_path(_) {
+  ()
 }
 
 ///|
@@ -493,6 +512,15 @@ pub fn State::new(policy~ : Policy = policy, control? : &Control) -> State {
     pto_count: 0,
     last_sent: -1L,
   }
+}
+
+///|
+/// The connection moved to a new path (RFC 9000 §9.4): the round trip and the window start over.
+/// What is in flight stays tracked, since those packets can still be acknowledged.
+pub fn State::on_new_path(self : State) -> Unit {
+  self.rtt.reset()
+  self.control.on_new_path()
+  self.pto_count = 0
 }
 
 ///|
@@ -661,3 +689,11 @@ pub extend Sent with Debug::{to_repr}
 
 ///|
 pub extend Sent with Eq::{not_equal, equal}
+
+///|
+impl Control for NewReno with fn on_new_path(self) {
+  let fresh = NewReno::new(policy=self.policy)
+  self.window = fresh.window
+  self.ssthresh = fresh.ssthresh
+  self.recovery = fresh.recovery
+}

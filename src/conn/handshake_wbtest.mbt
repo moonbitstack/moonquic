@@ -190,7 +190,6 @@ fn Peer::packet(
         4,
         frames,
         self.hs_tx.unwrap(),
-        suite=self.suite,
       )
     Application =>
       send_short(
@@ -200,7 +199,6 @@ fn Peer::packet(
         frames,
         self.app_tx.unwrap(),
         key_phase=self.key_phase,
-        suite=self.suite,
       )
   }
 }
@@ -231,6 +229,7 @@ fn Peer::absorb(self : Peer) -> Unit {
         }
         offsets[at] = offsets[at] + data.length().to_uint64()
       }
+      Early(..) => ()
       Keys(level, client~, server~) => {
         if self.tls.suite() is Some(s) {
           self.suite = suite_of(s)
@@ -321,13 +320,7 @@ fn Peer::receive(self : Peer, datagram : Bytes) -> Unit raise {
       let keys = must(self.app_rx, "1-RTT keys")
       let largest = self.spaces[2].largest_received()
       let (frames, pn) = must(
-        recv_short(
-          view.to_owned(),
-          self.scid.length(),
-          keys,
-          largest~,
-          suite=self.suite,
-        ),
+        recv_short(view.to_owned(), self.scid.length(), keys, largest~),
         "a 1-RTT packet that opens",
       )
       self.on_frames(Application, frames, pn)
@@ -353,12 +346,7 @@ fn Peer::receive(self : Peer, datagram : Bytes) -> Unit raise {
       Handshake => {
         let largest = self.spaces[1].largest_received()
         let (frames, pn) = must(
-          recv_long(
-            packet,
-            must(self.hs_rx, "Handshake keys"),
-            largest~,
-            suite=self.suite,
-          ),
+          recv_long(packet, must(self.hs_rx, "Handshake keys"), largest~),
           "a Handshake packet that opens",
         )
         self.on_frames(Handshake, frames, pn)
@@ -753,5 +741,6 @@ test "the ids a server issues come from its own source, and the client addresses
   assert_eq(conn.cid().length(), cid_size)
   assert_eq(conn.cid()[0], b'\x07')
   assert_eq(client.dcid, conn.cid())
-  assert_eq(made.val, 2)
+  // The wrong size, the handshake's, and the spare a connection is offered once it is up.
+  assert_eq(made.val, 3)
 }

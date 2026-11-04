@@ -39,19 +39,19 @@ pub let min_datagram : Int32
 
 pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
 
-pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64, suite? : @crypto.Suite) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
 pub fn reset_token(Bytes, Bytes) -> Bytes
 
-pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
+pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypto.Keys, token? : Bytes) -> Bytes
 
-pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes, suite? : @crypto.Suite) -> Bytes
+pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
 
-pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, suite? : @crypto.Suite) -> Bytes
+pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
 
-pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, suite? : @crypto.Suite) -> Bytes
+pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys) -> Bytes
 
 pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 
@@ -89,9 +89,18 @@ pub struct Client {
   streams : @stream.Streams
   events : Array[Event]
   datagrams : Array[Bytes]
-  key_phase : Bool
+  mut key_phase : Bool
+  mut rx_phase : Bool
+  mut app_tx_secret : Bytes
+  mut app_rx_secret : Bytes
+  mut phase_start : Int64
+  mut confirmed : Bool
   mut next_uni : UInt64
   mut zero_rtt_tx : @crypto.Keys?
+  mut reset_token : Bytes?
+  offered_ids : Array[(UInt64, Bytes, Bytes)]
+  mut dcid_seq : UInt64
+  reset_tokens : Array[Bytes]
   zero_frames : Array[@frame.Frame]
 }
 pub fn Client::alpn(Self) -> String?
@@ -102,6 +111,7 @@ pub fn Client::frames(Self) -> Array[@frame.Frame]
 pub fn Client::install_zero_rtt(Self, @crypto.Keys) -> Unit
 pub fn Client::is_connected(Self) -> Bool
 pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config) -> Self raise
+pub fn Client::next_cid(Self) -> Bool
 pub fn Client::open_uni(Self) -> UInt64
 pub fn Client::poll_out(Self, Int64) -> Array[Bytes]
 pub fn Client::read(Self, UInt64) -> Bytes
@@ -112,6 +122,7 @@ pub fn Client::server_cid(Self) -> Bytes
 pub fn Client::suite_code(Self) -> Int32
 pub fn Client::take_datagrams(Self) -> Array[Bytes]
 pub fn Client::take_events(Self) -> Array[Event]
+pub fn Client::update_keys(Self) -> Bool
 pub fn Client::write(Self, UInt64, Bytes, fin? : Bool) -> Unit
 
 pub(all) struct Config {
@@ -127,6 +138,7 @@ pub(all) struct Config {
   streams_bidi : UInt64
   streams_uni : UInt64
   max_datagram_frame_size : UInt64
+  connection_ids : UInt64
 }
 pub fn Config::default() -> Self
 
@@ -160,7 +172,7 @@ pub fn[A] Endpoint::conn_ids(Self[A]) -> Array[Bytes]
 pub fn[A] Endpoint::count(Self[A]) -> Int32
 pub fn[A] Endpoint::new(Config) -> Self[A]
 pub fn[A] Endpoint::poll_out(Self[A], Int64) -> (Bytes, A)? raise
-pub fn[A : Eq] Endpoint::recv(Self[A], Bytes, A, Int64) -> Unit raise
+pub fn[A : Eq] Endpoint::recv(Self[A], Bytes, A, Int64, wall? : Int64) -> Unit raise
 pub fn[A] Endpoint::server(Config, @tls.Server, rand~ : (Int32) -> Bytes, cid? : () -> Bytes) -> Self[A]
 pub fn[A] Endpoint::take_busy(Self[A]) -> Array[Session[A]]
 pub fn[A] Endpoint::tick(Self[A], Int64) -> Unit
@@ -323,7 +335,7 @@ pub fn Server::transcript_hash(Self) -> Bytes
 pub struct Session[A] {
   mut peer : A
   cid : Bytes
-  peer_cid : Bytes
+  mut peer_cid : Bytes
   core : Server
   sender : Sender
   cfg : Config

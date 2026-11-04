@@ -297,3 +297,21 @@ pub extend Mode with Debug::{to_repr}
 
 ///|
 pub extend Mode with Eq::{not_equal, equal}
+
+///|
+impl Control for Bbr with fn on_new_path(self) {
+  let fresh = Bbr::new(policy=self.policy)
+  self.window = fresh.window
+  self.btl_bw = fresh.btl_bw
+  self.min_rtt = fresh.min_rtt
+  self.min_rtt_at = fresh.min_rtt_at
+  self.mode = fresh.mode
+  self.delivered = fresh.delivered
+  self.sample_at = fresh.sample_at
+  self.sample_delivered = fresh.sample_delivered
+  self.full_bw = fresh.full_bw
+  self.full_bw_count = fresh.full_bw_count
+  self.cycle = fresh.cycle
+  self.cycle_at = fresh.cycle_at
+  self.probe_rtt_at = fresh.probe_rtt_at
+}

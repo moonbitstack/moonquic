@@ -91,16 +91,15 @@ for datagram in receive() {
 
 `alpn` and `suite_code` say what the handshake settled on once it is done, and `server_cid` is the id the peer wants addressed. Once it is connected the client carries streams: `write` and `read` are the same shape as the server's, and `take_events` says when a stream is readable.
 
-0-RTT rides the same client. Supply the early keys from a resumed session and queue frames; they go out in 0-RTT packets until the handshake finishes:
+A server's tickets come in 1-RTT CRYPTO frames after the handshake and land in the client's `@tls.Sessions`. A client given one of them and `early=true` has its early keys before its first packet goes out, so frames queued now leave in 0-RTT packets until the handshake finishes. `send_zero_rtt` answers false when there is no ticket to protect them with, and `early_accepted` says afterwards whether the server took them:
 
 ```moonbit
-client.install_zero_rtt(@crypto.zero_rtt(early_secret[:]))
-client.send_zero_rtt([
+let queued = client.send_zero_rtt([
   @frame.Stream(id=0UL, offset=0UL, fin=false, data=request),
 ])
 ```
 
-On the server, `Session::install_zero_rtt` takes the same keys, after which a 0-RTT packet's frames are handled like any other. (`moontls`, the handshake, does not yet hand a QUIC client its early secret, so the caller derives it from the resumed session.)
+A server allows it with `@tls.Tickets::new(keys, early=n)`, and judges tickets at the `wall` argument of `Endpoint::recv`: seconds since the Unix epoch, a different clock from `now`, which is in microseconds and only drives timers. An endpoint given no `wall` neither issues nor takes a ticket. 0-RTT data can be replayed by whoever recorded it (RFC 8446 §8), so it stays off until a server sets `early`. `install_zero_rtt` remains for keys that came from elsewhere.
 
 ## Datagrams
 
@@ -138,7 +137,11 @@ CUBIC follows a cubic function of the time since the last reduction and falls to
 
 Sockets, and anything that needs a clock of its own. The TLS handshake — that is `moontls`, whose key schedule RFC 9001 §5.2 reuses verbatim. HTTP/3 and QPACK — those are [`moonhttp`](https://github.com/moonbitstack/moonhttp)'s, because HTTP/3 is a version of HTTP and QPACK is to it what HPACK is to HTTP/2.
 
-Connection migration, path validation and stateless reset are here, and so is the client's 1-RTT stream layer. 0-RTT packets are here too, but the pinned `moontls` does not hand a QUIC client its early traffic secret, so a caller supplies the keys from a resumed session; without them a 0-RTT packet is dropped. A client `Endpoint` over many connections, and multipath, are the next step.
+A connection moves only for a packet that authenticated, is the newest seen, and carries more than probing frames. A challenge is answered on the path it came from, a new address has three times what it sent to spend until it answers, a path that will not answer is given up after three probe timeouts, and the round trip and window start over once it does (RFC 9000 §8.2, §9). A server names its stateless reset token in its transport parameters, and a client closes on a packet that will not open and ends in it.
+
+A server hands out spare connection ids up to what the client will hold and `Config.connection_ids` allows, and replaces the ones retired. `Client::next_cid` moves to one, for a change of path nobody should be able to link to the last. `Client::update_keys` starts a key update, and either end follows the other's.
+
+Connection migration, path validation, stateless reset, 0-RTT and the client's 1-RTT stream layer are here. A client `Endpoint` over many connections, and multipath, are the next step.
 
 A signing key never enters this library. A server's handshake flight takes the CertificateVerify as a function of the transcript hash, so whoever holds the key builds the body at the one moment §4.4.3 says to sign — `@conn.signed(key)` is that function for a `@spec.Signer`.
 

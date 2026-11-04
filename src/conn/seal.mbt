@@ -18,7 +18,6 @@ pub fn send_long(
   frames : Array[@frame.Frame],
   keys : @crypto.Keys,
   token~ : Bytes = b"",
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> Bytes {
   seal_long(
     kind,
@@ -30,7 +29,6 @@ pub fn send_long(
     @packet.payload(frames),
     keys,
     token~,
-    suite~,
   )
 }
 
@@ -47,7 +45,6 @@ pub fn seal_long(
   payload : Bytes,
   keys : @crypto.Keys,
   token~ : Bytes = b"",
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> Bytes {
   let pn = @packet.number(number, None, size~)
   let h : @packet.Long = {
@@ -58,10 +55,9 @@ pub fn seal_long(
     scid,
   }
   keys.seal(
-    h.header(pn[:], payload=payload.length() + suite.tag, token~)[:],
+    h.header(pn[:], payload=payload.length() + keys.suite.tag, token~)[:],
     payload[:],
     number~,
-    suite~,
   )
 }
 
@@ -75,12 +71,11 @@ pub fn send_short(
   keys : @crypto.Keys,
   spin~ : Bool = false,
   key_phase~ : Bool = false,
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> Bytes {
   let payload = @packet.payload(frames)
   let pn = @packet.number(number, None, size~)
   let h : @packet.Short = { spin, key_phase, pn_length: size, dcid, }
-  keys.seal(h.header(pn[:])[:], payload[:], number~, suite~)
+  keys.seal(h.header(pn[:])[:], payload[:], number~)
 }
 
 ///|
@@ -93,9 +88,8 @@ pub fn send_zero_rtt(
   size : Int32,
   frames : Array[@frame.Frame],
   keys : @crypto.Keys,
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> Bytes {
-  send_long(ZeroRtt, 1U, dcid, scid, number, size, frames, keys, suite~)
+  send_long(ZeroRtt, 1U, dcid, scid, number, size, frames, keys)
 }
 
 ///|
@@ -106,9 +100,8 @@ pub fn recv_long(
   packet : Bytes,
   keys : @crypto.Keys,
   largest~ : Int64 = -1L,
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
-  match keys.open(packet[:], largest~, suite~) {
+  match keys.open(packet[:], largest~) {
     Some((payload, pn)) => Some((@packet.read_payload(payload), pn))
     None => None
   }
@@ -121,9 +114,8 @@ pub fn recv_short(
   dcid_len : Int32,
   keys : @crypto.Keys,
   largest~ : Int64 = -1L,
-  suite~ : @crypto.Suite = @crypto.suite,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
-  match keys.open(packet[:], largest~, at=1 + dcid_len, suite~) {
+  match keys.open(packet[:], largest~, at=1 + dcid_len) {
     Some((payload, pn)) => Some((@packet.read_payload(payload), pn))
     None => None
   }

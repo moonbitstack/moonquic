@@ -90,6 +90,7 @@ fn[A] Endpoint::open(
   from : A,
   size : Int32,
   now : Int64,
+  wall : Int64?,
 ) -> Session[A]? {
   match self.tls {
     None => {
@@ -104,8 +105,9 @@ fn[A] Endpoint::open(
       let cid = self.fresh_cid()
       let tls = @tls.Conn::quic_server(
         config,
-        params=declared(self.cfg, h.dcid, cid),
+        params=declared(self.cfg, h.dcid, cid, reset_token(self.reset_key, cid)),
         rand=self.rand,
+        now?=wall,
       )
       let c = Session::new(
         from,
@@ -160,11 +162,16 @@ pub fn[A] Endpoint::conn(self : Endpoint[A], cid : Bytes) -> Session[A]? {
 /// Connection ID names, opening one when an Initial packet arrives for an id the server does
 /// not hold, and drive that connection with it (RFC 9000 §5.2). A datagram naming no
 /// connection is dropped — RFC 9000 §10.3's stateless reset is not implemented.
+///
+/// `now` is the timers' clock, in microseconds. `wall` is the time in seconds since the Unix epoch
+/// that tickets and client certificates are judged at, a different clock: left out, this endpoint
+/// neither issues nor takes a ticket.
 pub fn[A : Eq] Endpoint::recv(
   self : Endpoint[A],
   datagram : Bytes,
   from : A,
   now : Int64,
+  wall? : Int64,
 ) -> Unit raise {
   guard datagram.length() > 0 else { return }
   let conn = match @packet.read_long(datagram[:]) {
@@ -176,7 +183,7 @@ pub fn[A : Eq] Endpoint::recv(
         Some(c) => c
         None => {
           guard h.packet_type is @packet.Kind::Initial else { return }
-          guard self.open(h, from, datagram.length(), now) is Some(c) else {
+          guard self.open(h, from, datagram.length(), now, wall) is Some(c) else {
             return
           }
           c
@@ -192,7 +199,23 @@ pub fn[A : Eq] Endpoint::recv(
       }
   }
   conn.on_datagram(datagram, from, (self.rand)(8), now)
+  self.supply_ids(conn)
   self.note(conn)
+}
+
+///|
+/// Keep a connection's peer in spare ids, and forget the ones it retired (RFC 9000 §5.1.1). An id
+/// is the endpoint's to make, since it has to be unique across every connection here.
+fn[A] Endpoint::supply_ids(self : Endpoint[A], conn : Session[A]) -> Unit {
+  guard self.tls is Some(_) else { return }
+  for cid in conn.ids.take_retired() {
+    self.aliases.remove(cid)
+  }
+  while conn.owes_id() {
+    let cid = self.fresh_cid()
+    self.aliases[cid] = conn.cid
+    conn.issue_id(cid, reset_token(self.reset_key, cid))
+  }
 }
 
 ///|
@@ -254,7 +277,7 @@ fn[A] Endpoint::lookup_short(
 ) -> Session[A]? {
   if self.tls is Some(_) {
     guard datagram.length() >= 1 + cid_size else { return None }
-    return self.conns.get(datagram[1:1 + cid_size].to_owned())
+    return self.find(datagram[1:1 + cid_size].to_owned())
   }
   for cid in self.conns.keys().collect() {
     let n = cid.length()
@@ -277,6 +300,9 @@ pub fn[A] Endpoint::poll_out(
   }
   for cid in self.conns.keys().collect() {
     guard self.conns.get(cid) is Some(conn) else { continue }
+    if conn.probes.length() > 0 {
+      return Some(conn.probes.remove(0))
+    }
     match conn.next_datagram(now) {
       Some(datagram) => return Some((datagram, conn.peer))
       None => ()
@@ -321,6 +347,7 @@ pub fn[A] Endpoint::tick(self : Endpoint[A], now : Int64) -> Unit {
           expired.push(cid)
         } else {
           let _ = conn.sender.on_pto_timeout(now)
+          conn.tick_path(now)
           let pto = conn.sender.recovery.pto()
           conn.initial_out.tick(now, pto)
           conn.handshake_out.tick(now, pto)

@@ -39,10 +39,19 @@ pub struct Client {
   streams : @stream.Streams
   events : Array[Event]
   datagrams : Array[Bytes]
-  key_phase : Bool
+  mut key_phase : Bool
+  mut rx_phase : Bool
+  mut app_tx_secret : Bytes
+  mut app_rx_secret : Bytes
+  mut phase_start : Int64
+  mut confirmed : Bool
   mut next_uni : UInt64
   /// The early keys a caller supplied for 0-RTT, and the frames waiting to go under them.
   mut zero_rtt_tx : @crypto.Keys?
+  mut reset_token : Bytes?
+  offered_ids : Array[(UInt64, Bytes, Bytes)]
+  mut dcid_seq : UInt64
+  reset_tokens : Array[Bytes]
   zero_frames : Array[@frame.Frame]
 }
 
@@ -92,10 +101,16 @@ pub fn Client::new(
   rand : (Int32) -> Bytes,
   dcid : Bytes,
   scid : Bytes,
-  now : Int64,
+  wall : Int64,
   cfg~ : Config = Config::default(),
 ) -> Client raise {
-  let tls = @tls.Conn::quic_client(config, server_name, params~, rand~, now~)
+  let tls = @tls.Conn::quic_client(
+    config,
+    server_name,
+    params~,
+    rand~,
+    now=wall,
+  )
   let (tx, rx) = @crypto.initial(dcid[:])
   let client : Client = {
     tls,
@@ -131,8 +146,17 @@ pub fn Client::new(
     events: [],
     datagrams: [],
     key_phase: false,
+    rx_phase: false,
+    app_tx_secret: b"",
+    app_rx_secret: b"",
+    phase_start: 0L,
+    confirmed: false,
     next_uni: 0UL,
     zero_rtt_tx: None,
+    reset_token: None,
+    offered_ids: [],
+    dcid_seq: 0UL,
+    reset_tokens: [],
     zero_frames: [],
   }
   client.absorb()
@@ -151,6 +175,10 @@ fn Client::absorb(self : Client) -> Unit {
         self.out.push((ours_of(level), offset, data))
         self.offsets[at] = offset + data.length().to_int64()
       }
+      Early(secret~, suite~) =>
+        self.zero_rtt_tx = Some(
+          @crypto.zero_rtt(secret[:], suite=suite_of(suite)),
+        )
       Keys(level, client~, server~) => {
         if self.tls.suite() is Some(s) {
           self.suite = suite_of(s)
@@ -166,6 +194,8 @@ fn Client::absorb(self : Client) -> Unit {
           Application => {
             self.app_tx = Some(tx)
             self.app_rx = Some(rx)
+            self.app_tx_secret = client
+            self.app_rx_secret = server
           }
           Initial => ()
         }
@@ -180,6 +210,9 @@ fn Client::absorb(self : Client) -> Unit {
 /// flow-control credit that opens the send loop, and the largest datagram it will take.
 fn Client::adopt_peer_params(self : Client) -> Unit {
   guard self.tls.peer_params() is Some(raw) else { return }
+  self.reset_token = find(decode(raw[:]), StatelessResetToken).map(p => p.value) catch {
+    _ => None
+  }
   guard decode_opt(raw[:]) is Some(params) else { return }
   let peer = Limits::read(params[:])
   // A stream this client opens is "remote" from the server's side of the ledger.
@@ -224,7 +257,6 @@ pub fn Client::poll_out(self : Client, now : Int64) -> Array[Bytes] {
               4,
               body,
               self.initial_tx,
-              suite=self.suite,
             )
           }
           pad(payload, build, min_datagram)
@@ -241,7 +273,6 @@ pub fn Client::poll_out(self : Client, now : Int64) -> Array[Bytes] {
                 4,
                 [frame],
                 keys,
-                suite=self.suite,
               )
             None => b""
           }
@@ -259,9 +290,8 @@ pub fn Client::poll_out(self : Client, now : Int64) -> Array[Bytes] {
     let frames = self.zero_frames.copy()
     self.zero_frames.clear()
     let pn = self.core.next_packet_number(Level::Application)
-    out.push(
-      send_zero_rtt(self.dcid, self.scid, pn, 4, frames, keys, suite=self.suite),
-    )
+    self.sender.advance_past(pn)
+    out.push(send_zero_rtt(self.dcid, self.scid, pn, 4, frames, keys))
   }
   // 1-RTT: once the handshake is done, whatever the send loop has ready, with the ACK owed.
   if self.tls.is_connected() {
@@ -281,7 +311,9 @@ pub fn Client::poll_out(self : Client, now : Int64) -> Array[Bytes] {
         None => {
           match ack {
             Some(a) => {
+              // The send loop numbers this space too. A number used twice is a nonce used twice.
               let pn = space.next_packet_number()
+              self.sender.advance_past(pn)
               out.push(self.seal_app(pn, [a]))
             }
             None => ()
@@ -303,15 +335,7 @@ fn Client::seal_app(
 ) -> Bytes {
   match self.app_tx {
     Some(keys) =>
-      send_short(
-        self.dcid,
-        pn,
-        4,
-        frames,
-        keys,
-        key_phase=self.key_phase,
-        suite=self.suite,
-      )
+      send_short(self.dcid, pn, 4, frames, keys, key_phase=self.key_phase)
     None => b""
   }
 }
@@ -331,16 +355,20 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
       // 1-RTT: every Application packet runs to the end of the datagram.
       guard self.app_rx is Some(keys) else { break }
       let space = self.core.space(Level::Application)
-      let opened = recv_short(
+      let opened = self.open_app(
         view.to_owned(),
-        self.scid.length(),
         keys,
-        largest=space.largest_received(),
-        suite=self.suite,
-      ) catch {
-        _ => None
+        space.largest_received(),
+      )
+      guard opened is Some((frames, pn)) else {
+        // RFC 9000 §10.3.1: a packet that will not open may be the server saying it has forgotten
+        // this connection. Only a packet that fails to open is compared, and it ends the
+        // connection at once, since nothing more can come.
+        if self.known_reset(view) {
+          self.events.push(Closed(0UL))
+        }
+        break
       }
-      guard opened is Some((frames, pn)) else { break }
       self.core.on_packet_received(
         Level::Application,
         pn,
@@ -372,6 +400,104 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
 }
 
 ///|
+/// A short-header packet's frames. One that will not open under the current keys may be the next
+/// phase, and only a real packet opens under those (RFC 9001 §6.3). If the server moved first this
+/// client follows it, since it may not keep writing the old phase once it has read the new one.
+fn Client::open_app(
+  self : Client,
+  packet : Bytes,
+  keys : @crypto.Keys,
+  largest : Int64,
+) -> (Array[@frame.Frame], Int64)? {
+  let n = self.scid.length()
+  let opened = recv_short(packet, n, keys, largest~) catch { _ => None }
+  guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
+  let (secret, next) = roll(self.app_rx_secret, keys, self.suite)
+  let moved = recv_short(packet, n, next, largest~) catch { _ => None }
+  guard moved is Some(_) else { return None }
+  self.app_rx = Some(next)
+  self.app_rx_secret = secret
+  self.rx_phase = !self.rx_phase
+  if self.rx_phase != self.key_phase {
+    self.next_write_phase()
+  }
+  moved
+}
+
+///|
+fn Client::next_write_phase(self : Client) -> Unit {
+  guard self.app_tx is Some(keys) else { return }
+  let (secret, next) = roll(self.app_tx_secret, keys, self.suite)
+  self.app_tx = Some(next)
+  self.app_tx_secret = secret
+  self.key_phase = !self.key_phase
+  self.phase_start = self.sender.next_pn
+}
+
+///|
+/// Whether a packet that would not open ends in a token one of this server's ids came with.
+fn Client::known_reset(self : Client, packet : BytesView) -> Bool {
+  (self.reset_token is Some(token) && is_stateless_reset(packet, token[:])) ||
+  self.reset_tokens.iter().any(token => is_stateless_reset(packet, token[:]))
+}
+
+///|
+/// An id from the server, for when this client wants a new one (RFC 9000 §5.1.2). Anything below
+/// `retire_prior_to` has to go, the one in use with it.
+fn Client::on_new_id(
+  self : Client,
+  seq : UInt64,
+  retire_prior_to : UInt64,
+  cid : Bytes,
+  token : Bytes,
+) -> Unit {
+  if self.offered_ids.iter().all(entry => entry.0 != seq) && seq > self.dcid_seq {
+    self.offered_ids.push((seq, cid, token))
+    self.reset_tokens.push(token)
+  }
+  let kept = []
+  for entry in self.offered_ids {
+    if entry.0 < retire_prior_to {
+      self.sender.queue_control(RetireConnectionId(entry.0))
+    } else {
+      kept.push(entry)
+    }
+  }
+  self.offered_ids.clear()
+  self.offered_ids.append(kept)
+  if self.dcid_seq < retire_prior_to {
+    ignore(self.next_cid())
+  }
+}
+
+///|
+/// Start addressing the server by the next id it offered, and retire the one in use. Do this before
+/// sending from a new address on purpose, so the two paths cannot be linked (RFC 9000 §9.5). False
+/// when it has offered none.
+pub fn Client::next_cid(self : Client) -> Bool {
+  guard self.offered_ids.length() > 0 else { return false }
+  let (seq, cid, _) = self.offered_ids.remove(0)
+  self.sender.queue_control(RetireConnectionId(self.dcid_seq))
+  self.dcid_seq = seq
+  self.dcid = cid
+  true
+}
+
+///|
+/// Move to the next key phase (RFC 9001 §6). The answer is false when it is not allowed yet: before
+/// the handshake is confirmed, or before something written in the current phase has been
+/// acknowledged, which is what stops an endpoint outrunning its peer's two sets of keys (§6.1, §6.2).
+pub fn Client::update_keys(self : Client) -> Bool {
+  guard self.confirmed &&
+    self.rx_phase == self.key_phase &&
+    self.sender.recovery.flight.largest_acked() >= self.phase_start else {
+    return false
+  }
+  self.next_write_phase()
+  true
+}
+
+///|
 /// One long-header packet at `level`, under `keys`: record its number, reassemble its CRYPTO
 /// bytes, feed the contiguous run to the handshake, and do what it asks.
 fn Client::on_long(
@@ -381,12 +507,7 @@ fn Client::on_long(
   keys : @crypto.Keys,
 ) -> Unit raise {
   let space = self.core.space(level)
-  let opened = recv_long(
-    packet,
-    keys,
-    largest=space.largest_received(),
-    suite=self.suite,
-  ) catch {
+  let opened = recv_long(packet, keys, largest=space.largest_received()) catch {
     _ => None
   }
   guard opened is Some((frames, pn)) else { return }
@@ -436,9 +557,8 @@ pub fn Client::server_cid(self : Client) -> Bytes {
 }
 
 ///|
-/// Install the client's 0-RTT (early) keys (RFC 9001 §5.2). They are TLS's early traffic
-/// secret expanded by `@crypto.zero_rtt`; this library has no handshake of its own to derive
-/// one, so the caller supplies them.
+/// Install the client's 0-RTT (early) keys (RFC 9001 §5.2) by hand. A client given a ticket and
+/// `early=true` has them from its handshake already; this is for keys that came from elsewhere.
 pub fn Client::install_zero_rtt(self : Client, keys : @crypto.Keys) -> Unit {
   self.zero_rtt_tx = Some(keys)
 }
@@ -495,6 +615,17 @@ fn Client::on_app_frames(
           self.events.push(event)
         }
       }
+      // RFC 9001 §4.1.3: TLS goes on speaking at this level, and what it says is a ticket.
+      Crypto(offset~, data~) => {
+        let ready = self.core.on_crypto_frame(Level::Application, offset, data)
+        if ready.length() > 0 {
+          self.tls.crypto(Application, ready[:])
+          self.absorb()
+        }
+      }
+      HandshakeDone => self.confirmed = true
+      NewConnectionId(seq~, retire_prior_to~, conn_id~, reset_token~) =>
+        self.on_new_id(seq, retire_prior_to, conn_id, reset_token)
       MaxData(v) => self.sender.on_max_data(v)
       MaxStreamData(id~, max~) => self.sender.on_max_stream_data(id, max)
       ResetStream(id~, error_code~, ..) =>

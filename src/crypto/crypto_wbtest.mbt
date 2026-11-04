@@ -209,6 +209,7 @@ test "a packet number of zero leaves the IV alone, and others XOR into its tail"
     key: b"",
     iv: qc_hexb("000102030405060708090a0b"),
     hp: b"",
+    suite,
   }
   assert_eq(qc_hex(keys.nonce(0L)), "000102030405060708090a0b")
   // The number occupies the low eight bytes, so the first four pass through.
@@ -295,10 +296,9 @@ test "the suite is a knob on both sides: AES-256 seals and opens" {
   }
   let payload = qc_hexb("0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e")
   let header = h.header(qc_hexb("0007")[:])
-  let packet = keys.seal(header[:], payload[:], number=7L, suite=big)
+  let packet = keys.seal(header[:], payload[:], number=7L)
   // A short header's connection-id length is the receiver's to know.
-  guard keys.open(packet[:], largest=6L, at=4, suite=big)
-    is Some((plain, number)) else {
+  guard keys.open(packet[:], largest=6L, at=4) is Some((plain, number)) else {
     fail("an AES-256 packet should open")
   }
   assert_eq(qc_hex(plain), qc_hex(payload))
@@ -366,16 +366,9 @@ test "ChaCha20-Poly1305 protects a short packet as RFC 9001 A.5 shows" {
     keys.hp,
     qc_hexb("25a282b9e82f06f21f488917a4fc8f1b73573685608597d0efcb076b0ab7a7a4"),
   )
-  let packet = keys.seal(
-    qc_hexb("4200bff4")[:],
-    b"\x01"[:],
-    number=654360564L,
-    suite=chacha20,
-  )
+  let packet = keys.seal(qc_hexb("4200bff4")[:], b"\x01"[:], number=654360564L)
   assert_eq(packet, qc_hexb("4cfe4189655e5cd55c41f69080575d7999c25a5bfb"))
-  let (plain, number) = keys
-    .open(packet[:], largest=654360563L, at=1, suite=chacha20)
-    .unwrap()
+  let (plain, number) = keys.open(packet[:], largest=654360563L, at=1).unwrap()
   assert_eq(plain, b"\x01")
   assert_eq(number, 654360564L)
 }
@@ -386,14 +379,6 @@ test "AES-256-GCM expands to the sizes its cipher needs" {
   assert_eq(keys.key.length(), 32)
   assert_eq(keys.hp.length(), 32)
   assert_eq(keys.iv.length(), 12)
-  let packet = keys.seal(
-    b"\x43\x00\x00\x00\x07"[:],
-    b"payload"[:],
-    number=7L,
-    suite=aes256,
-  )
-  assert_eq(
-    keys.open(packet[:], largest=6L, at=1, suite=aes256).unwrap().0,
-    b"payload",
-  )
+  let packet = keys.seal(b"\x43\x00\x00\x00\x07"[:], b"payload"[:], number=7L)
+  assert_eq(keys.open(packet[:], largest=6L, at=1).unwrap().0, b"payload")
 }

@@ -10,6 +10,7 @@
 // and the headers are `packet`'s: what is here is the wiring RFC 9001 specifies
 // between them.
 import {
+  "moonbitlang/core/debug",
   "moonbitstack/moonquic/packet",
   "moonbitstack/moontls/keys",
   "moonbitstack/mooncrypt/spec",
