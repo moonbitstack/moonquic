@@ -206,3 +206,21 @@ test "a 0-RTT packet the server never saw goes out again" {
   let conn = only_conn(server)
   assert_eq(conn.read(0UL), b"early")
 }
+
+///|
+test "an Initial that does not authenticate does not move the client's target id" {
+  let client = make_client()
+  let forged = Buffer()
+  // A long header naming another source id, sealed with keys the client does not have.
+  forged.write_byte(b'\xc0')
+  forged.write_bytes(b"\x00\x00\x00\x01")
+  forged.write_byte(b'\x04')
+  forged.write_bytes(client.dcid)
+  forged.write_byte(b'\x08')
+  forged.write_bytes(Bytes::make(8, b'\x99'))
+  forged.write_bytes(Bytes::make(1200, b'\x01'))
+  let before = client.dcid
+  client.recv(forged.to_bytes(), 1000L)
+  assert_eq(client.dcid, before)
+  assert_false(client.seen_server_cid)
+}
