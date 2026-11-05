@@ -29,7 +29,8 @@ let startup_gain : Double = 2.885
 
 ///|
 /// The probe-bandwidth gain for a cycle position: 1.25 to probe, 0.75 to yield, then 1 while
-/// the estimate is held.
+/// the estimate is held. BBR's cycle is eight rounds long, one per position, and the two ends
+/// are where the bandwidth estimate is tested (draft-cardwell-iccrg-bbr §4.3).
 fn probe_gain(index : Int32) -> Double {
   match index % 8 {
     0 => 1.25
@@ -37,6 +38,31 @@ fn probe_gain(index : Int32) -> Double {
     _ => 1.0
   }
 }
+
+///|
+/// How much of the bandwidth-delay product the window holds: BBR gives the window twice the
+/// model while probing and once while draining, so a queue it built can empty. The pacing gain
+/// and the window gain are different numbers on purpose — pacing says how fast to send, the
+/// window says how much may be outstanding.
+fn cwnd_gain(mode : Mode) -> Double {
+  match mode {
+    Startup => startup_gain
+    Drain => 1.0
+    ProbeBw => 2.0
+    ProbeRtt => 1.0
+  }
+}
+
+///|
+/// How long BBR holds the window at its floor so the path can drain and a fresh round-trip
+/// minimum can be sampled (draft-cardwell-iccrg-bbr §4.4). 200 milliseconds, as BBR uses.
+let probe_rtt_period : Int64 = 200_000L
+
+///|
+/// How many datagrams the window holds while sampling the round trip. Four packets is BBR's
+/// floor for the stay: enough for the peer's acknowledgement to come back, small enough that
+/// the queue empties.
+let probe_rtt_datagrams : Int64 = 4L
 
 ///|
 /// A BBR congestion controller, an implementation of `Control`.
@@ -60,6 +86,8 @@ pub struct Bbr {
   mut cycle : Int32
   mut cycle_at : Int64
   mut probe_rtt_at : Int64
+  /// Whether a round-trip sample arrived during the probe-RTT stay, which is what lets it end.
+  mut probe_rtt_done : Bool
   policy : Policy
 }
 
@@ -85,6 +113,7 @@ pub fn Bbr::new(policy~ : Policy = policy) -> Bbr {
     cycle: 0,
     cycle_at: 0,
     probe_rtt_at: 0,
+    probe_rtt_done: false,
     policy,
   }
 }
@@ -114,7 +143,7 @@ pub fn Bbr::min_rtt(self : Bbr) -> Int64 {
 }
 
 ///|
-/// The gain the current mode applies to the bandwidth-delay product.
+/// The gain the current mode applies to the bandwidth-delay product when pacing.
 fn Bbr::gain(self : Bbr) -> Double {
   match self.mode {
     Startup => startup_gain
@@ -132,11 +161,17 @@ pub fn Bbr::bdp(self : Bbr) -> Int64 {
 }
 
 ///|
-/// The window the model asks for: the bandwidth-delay product times the mode's gain, three
-/// datagrams of headroom, floored at the minimum. A test holds a loss to leaving it
-/// unchanged, which is what tells BBR from NewReno.
+/// The window the model asks for: the bandwidth-delay product times the mode's window gain,
+/// three datagrams of headroom, floored at the minimum. A loss leaves it unchanged, which is
+/// what tells BBR from NewReno. While the round trip is being sampled the window is held at
+/// four datagrams whatever the model says, so the queue the last cycle built can drain.
 pub fn Bbr::target(self : Bbr) -> Int64 {
-  let scaled = (self.bdp().to_double() * self.gain()).to_int64()
+  if self.mode == ProbeRtt {
+    let floor = self.minimum()
+    let window = probe_rtt_datagrams * self.policy.datagram
+    return if window > floor { window } else { floor }
+  }
+  let scaled = (self.bdp().to_double() * cwnd_gain(self.mode)).to_int64()
   let want = scaled + 3L * self.policy.datagram
   let floor = self.minimum()
   if want > floor {
@@ -198,6 +233,7 @@ impl Control for Bbr with fn on_persistent(self) {
   self.btl_bw = 0.0
   self.mode = ProbeRtt
   self.probe_rtt_at = 0L
+  self.probe_rtt_done = false
 }
 
 ///|
@@ -231,37 +267,41 @@ impl Control for Bbr with fn on_ack_at(self, size, now~) {
       }
     }
   }
+  // ProbeRTT: ten seconds without a fresher round-trip minimum means the path's queue has
+  // grown into every sample, so the window drops and waits for a clean one (§4.4).
   if self.btl_bw > 0.0 &&
     self.mode != ProbeRtt &&
     now - self.min_rtt_at > 10_000_000L {
     self.mode = ProbeRtt
     self.probe_rtt_at = now
+    self.probe_rtt_done = false
   }
   match self.mode {
     Startup => ()
     Drain =>
+      // The queue startup built is gone once what is in flight fits the model.
       if self.in_flight <= self.bdp() {
         self.mode = ProbeBw
-        self.cycle = 0
+        // Enter at a gain of 1: the bandwidth was just measured, so probe from there.
+        self.cycle = 2
         self.cycle_at = now
       }
     ProbeBw =>
+      // One round per position: the cycle walks 1.25, 0.75, then six rounds at 1.
       if now - self.cycle_at >= self.min_rtt {
         self.cycle = self.cycle + 1
         self.cycle_at = now
       }
     ProbeRtt =>
-      if now - self.probe_rtt_at >= self.min_rtt {
+      // It ends when the stay is over and a sample has arrived; a path that says nothing keeps
+      // the window small, which is the safe direction.
+      if now - self.probe_rtt_at >= probe_rtt_period && self.probe_rtt_done {
         self.mode = ProbeBw
-        self.cycle = 0
+        self.cycle = 2
         self.cycle_at = now
       }
   }
-  self.window = if self.mode == ProbeRtt {
-    self.minimum()
-  } else {
-    self.target()
-  }
+  self.window = self.target()
 }
 
 ///|
@@ -272,10 +312,24 @@ impl Control for Bbr with fn on_rtt(self, sample~, now~) {
     self.min_rtt = sample
     self.min_rtt_at = now
     if self.mode == ProbeRtt {
-      self.mode = ProbeBw
-      self.cycle = 0
-      self.cycle_at = now
+      // A clean sample during the stay is what it was waiting for; the stay still runs its
+      // 200 milliseconds, so the queue has time to empty.
+      self.probe_rtt_done = true
     }
+  }
+}
+
+///|
+/// What BBR would pace at: the bottleneck rate times the mode's gain, which is the rate the
+/// model has decided the path can carry. The window gain is a different number on purpose —
+/// pacing says how fast to send, the window says how much may be outstanding. Nothing is
+/// offered before the first delivery-rate sample, so the connection is unpaced until it knows
+/// something (RFC 9002 §7.7).
+impl Control for Bbr with fn pacing_rate(self) {
+  if self.btl_bw <= 0.0 {
+    None
+  } else {
+    Some(self.btl_bw * self.gain())
   }
 }
 
@@ -315,4 +369,5 @@ impl Control for Bbr with fn on_new_path(self) {
   self.cycle = fresh.cycle
   self.cycle_at = fresh.cycle_at
   self.probe_rtt_at = fresh.probe_rtt_at
+  self.probe_rtt_done = fresh.probe_rtt_done
 }

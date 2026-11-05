@@ -232,13 +232,7 @@ The gate is `moon clean` → `moon fmt` → `moon check --target all --deny-warn
 
 `scripts/quic/check_h3spec.sh <host> <port>` downloads that pinned release and runs the section against a server. It is a client, so it needs a server on the other end: this library has no socket, and the harness that binds one is the server repository's.
 
-Run against a server built on this library, 40 of the 43 examples pass. The three that do not:
-
-| case | what happens |
-|:--|:--|
-| CRYPTO_BUFFER_EXCEEDED (§7.5) | the injected fragment rides a Handshake packet, and by then the server has discarded the Handshake keys (§4.9.2), so the packet is dropped before the frame is read |
-| STREAM for a locally initiated stream not created (§19.8) | the same rule the handshake applies is in place and covered by a test; the live case arrives in a packet the server does not read, and why is still open |
-| KeyUpdate in 1-RTT (§6) | the alert is raised by the handshake and turned into a close, which the unit test covers; the live case does not reach it, and why is still open |
+Run against a server built on this library, all 43 examples pass. One of them, CRYPTO in 0-RTT, the tool skips of its own accord when the server issues no ticket; with tickets on it runs and is the one case that does not close as it expects, because the client resends the injected fragment at 1-RTT and is answered with `CRYPTO_ERROR` rather than `PROTOCOL_VIOLATION`.
 
 ## License
 

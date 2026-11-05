@@ -29,6 +29,7 @@ pub struct Bbr {
   mut cycle : Int32
   mut cycle_at : Int64
   mut probe_rtt_at : Int64
+  mut probe_rtt_done : Bool
   policy : Policy
 }
 pub fn Bbr::bandwidth(Self) -> Double

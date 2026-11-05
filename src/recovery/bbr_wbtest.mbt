@@ -93,3 +93,84 @@ test "the state machine drives bbr through the timed acknowledgement" {
   // The one ACK sampled a round trip and a rate; the window is the model's now.
   assert_eq(s.window() >= cc.minimum(), true)
 }
+
+///|
+test "startup ends after three rounds without a quarter more bandwidth" {
+  let cc = Bbr::new()
+  cc.on_rtt(sample=1000L, now=0L)
+  // Enough in flight that drain does not finish on the same call.
+  cc.on_sent(50_000L)
+  cc.on_ack_at(1200L, now=1000L)
+  cc.on_ack_at(1200L, now=2000L)
+  cc.on_ack_at(1200L, now=3000L)
+  assert_eq(cc.mode(), Startup)
+  cc.on_ack_at(1200L, now=4000L)
+  assert_eq(cc.mode(), Drain)
+}
+
+///|
+test "drain gives way to probe-bandwidth once what is in flight fits the model" {
+  let cc = Bbr::new()
+  cc.on_rtt(sample=1000L, now=0L)
+  cc.on_sent(50_000L)
+  for k in 1..<=4 {
+    cc.on_ack_at(1200L, now=k.to_int64() * 1000L)
+  }
+  assert_eq(cc.mode(), Drain)
+  // Everything acknowledged: nothing is in flight, which is below the model.
+  cc.on_ack_at(40_000L, now=5000L)
+  assert_eq(cc.mode(), ProbeBw)
+  // It enters at a gain of 1: the bandwidth was just measured.
+  assert_eq(cc.cycle, 2)
+}
+
+///|
+test "the probe-bandwidth cycle walks a round per position" {
+  assert_eq(probe_gain(0), 1.25)
+  assert_eq(probe_gain(1), 0.75)
+  assert_eq(probe_gain(2), 1.0)
+  let cc = Bbr::new()
+  cc.on_rtt(sample=1000L, now=0L)
+  cc.on_sent(50_000L)
+  for k in 1..<=4 {
+    cc.on_ack_at(1200L, now=k.to_int64() * 1000L)
+  }
+  cc.on_ack_at(40_000L, now=5000L)
+  assert_eq(cc.mode(), ProbeBw)
+  let at = cc.cycle
+  // One round later the position has moved; the cycle is what selects the gain.
+  cc.on_ack_at(1200L, now=5000L + cc.min_rtt())
+  assert_eq(cc.cycle, at + 1)
+}
+
+///|
+test "probe-rtt waits for a quiet path, holds four datagrams, and leaves on a sample" {
+  let cc = Bbr::new()
+  cc.on_rtt(sample=1000L, now=0L)
+  cc.on_ack_at(1200L, now=1000L)
+  assert_eq(cc.mode() is ProbeRtt, false)
+  // Ten seconds without a fresher round-trip minimum.
+  cc.on_ack_at(1200L, now=12_000_000L)
+  assert_eq(cc.mode(), ProbeRtt)
+  assert_eq(cc.window(), 4L * 1200L)
+  // The stay is 200 ms, and it needs a sample before it can end.
+  cc.on_rtt(sample=900L, now=12_050_000L)
+  cc.on_ack_at(1200L, now=12_100_000L)
+  // Still inside the 200 milliseconds.
+  assert_eq(cc.mode(), ProbeRtt)
+  cc.on_ack_at(1200L, now=12_200_001L)
+  assert_eq(cc.mode(), ProbeBw)
+}
+
+///|
+test "pacing is the bandwidth times the pacing gain, which is not the window gain" {
+  let cc = Bbr::new()
+  cc.on_rtt(sample=1000L, now=0L)
+  assert_true(cc.pacing_rate() is None)
+  cc.on_ack_at(1200L, now=1000L)
+  guard cc.pacing_rate() is Some(rate) else { fail("no pacing rate") }
+  // Startup paces at 2.885 times the measured rate, while the window holds 2.885 times the
+  // bandwidth-delay product plus headroom.
+  assert_true(rate > cc.bandwidth())
+  assert_true(cc.window() > cc.bdp())
+}
