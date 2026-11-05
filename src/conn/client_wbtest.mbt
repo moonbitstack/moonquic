@@ -36,15 +36,20 @@ fn make_client(alpn~ : Array[String] = ["h3"]) -> Client raise {
 }
 
 ///|
-test "the splitter runs a long CRYPTO stream across packets at their offsets" {
-  let runs = split_crypto(0L, Bytes::make(1600, 0))
-  assert_eq(runs.length(), 2)
-  assert_eq(runs[0].0, 0L)
-  assert_eq(runs[0].1.length(), 1100)
-  assert_eq(runs[1].0, 1100L)
-  assert_eq(runs[1].1.length(), 500)
+test "a long CRYPTO stream leaves in runs sized for the packet that carries it" {
+  let out = Outbox::new()
+  out.write(Bytes::make(1600, 0))
+  let room = crypto_room(
+    b"\x83\x94\xc8\xf0\x3e\x51\x57\x08", b"\xaa\xbb\xcc\xdd", b"", false,
+  )
+  // Each run is at most the room one datagram leaves, and the next starts where it ended.
+  assert_eq(out.take(room), Some((0, room)))
+  assert_eq(out.take(room), Some((room, 1600 - room)))
+  assert_eq(out.take(room), None)
   // A stream shorter than one packet is one run.
-  assert_eq(split_crypto(7L, Bytes::make(100, 0)).length(), 1)
+  let small = Outbox::new()
+  small.write(Bytes::make(100, 0))
+  assert_eq(small.take(room), Some((0, 100)))
 }
 
 ///|
@@ -96,9 +101,8 @@ test "streams run both ways over the client's 1-RTT path" {
 test "a first flight larger than a datagram splits into several Initial packets" {
   let client = make_client()
   // Stand in for the post-quantum hello: 1600 bytes of CRYPTO, past one packet.
-  client.out.clear()
-  client.offsets[0] = 1600L
-  client.out.push((Level::Initial, 0L, Bytes::make(1600, b'c')))
+  client.initial_out.clear()
+  client.initial_out.write(Bytes::make(1600, b'c'))
   let packets = client.poll_out(0L)
   assert_eq(packets.length(), 2)
   for packet in packets {
@@ -173,6 +177,13 @@ fn resuming_client(store : @tls.Sessions, wall : Int64) -> Client raise {
     b"\x83\x94\xc8\xf0\x3e\x51\x57\x08",
     scid,
     wall,
+    // What the last connection left: 0-RTT data may spend this before the handshake's
+    // parameters arrive (RFC 9000 §7.4.1).
+    cfg={
+      ..Config::default(),
+      zero_rtt_data: 1_000_000UL,
+      zero_rtt_stream_data: 1_000_000UL,
+    },
   )
 }
 
@@ -247,9 +258,7 @@ test "0-RTT: a stream written before the handshake arrives, and the server said 
   let client = resuming_client(store, wall)
   let server = resuming_server()
   // The early keys came out of the handshake with no help from the caller.
-  assert_true(
-    client.send_zero_rtt([Stream(id=0UL, offset=0UL, fin=true, data=b"early")]),
-  )
+  client.write(0UL, b"early", fin=true)
   for datagram in client.poll_out(2000L) {
     server.recv(datagram, from, 2000L, wall~)
   }
@@ -263,11 +272,17 @@ test "0-RTT: a stream written before the handshake arrives, and the server said 
 }
 
 ///|
-test "0-RTT: a client with no ticket has nothing to protect early frames with" {
+test "0-RTT: a client with no ticket keeps early data back for the handshake" {
   let client = resuming_client(@tls.Sessions::new(), WALL)
-  assert_false(
-    client.send_zero_rtt([Stream(id=0UL, offset=0UL, fin=true, data=b"early")]),
-  )
+  client.write(0UL, b"early", fin=true)
+  for packet in client.poll_out(1000L) {
+    // Nothing may carry a STREAM frame but a 0-RTT or 1-RTT packet, and with neither key
+    // there is no such packet.
+    assert_false(
+      (packet[0].to_int() & 0x80) != 0 && (packet[0].to_int() & 0x30) == 0x10,
+    )
+  }
+  assert_false(client.is_connected())
 }
 
 ///|
@@ -355,6 +370,13 @@ test "a key update waits for confirmation, and for the last one to be acknowledg
 ///|
 test "a client follows a key update the server starts" {
   let (client, server, conn) = talking()
+  // The client opens the stream first: a peer may only send on a bidirectional stream this end
+  // created (RFC 9000 §19.8), and the next part of this test is the server sending on it.
+  client.write(4UL, b"open", fin=false)
+  for datagram in client.poll_out(4000L) {
+    server.recv(datagram, from, 4000L, wall=WALL)
+  }
+  ignore(conn.read(4UL))
   let (secret, written) = roll(
     conn.app_tx_secret,
     conn.app_tx.unwrap(),

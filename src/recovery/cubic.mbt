@@ -201,6 +201,7 @@ pub extend Cubic with Control::{
   on_congestion,
   on_persistent,
   on_rtt,
+  pacing_rate,
 }
 
 ///|

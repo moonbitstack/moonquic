@@ -341,6 +341,10 @@ pub(open) trait Control {
   /// learned is about the old one, and only what is in flight carries over. The default keeps
   /// everything, so a controller outside this library is no worse than it was.
   fn on_new_path(Self) -> Unit = _
+  /// The rate this controller would pace at, in bytes per microsecond, or `None` to let the
+  /// caller derive one from the window and the round trip. BBR models the bottleneck directly,
+  /// so its own rate is the better answer (RFC 9002 §7.7).
+  fn pacing_rate(Self) -> Double? = _
 }
 
 ///|
@@ -362,6 +366,13 @@ impl Control with fn on_rtt(_, sample~, now~) {
 ///|
 impl Control with fn on_new_path(_) {
   ()
+}
+
+///|
+/// The default pacing rate: none, so the caller derives one from the window and the round trip,
+/// and a controller that does not model the path is paced like any other.
+impl Control with fn pacing_rate(_) {
+  None
 }
 
 ///|
@@ -482,6 +493,7 @@ pub extend NewReno with Control::{
   on_lost,
   on_congestion,
   on_persistent,
+  pacing_rate,
 }
 
 ///|
@@ -633,6 +645,22 @@ pub fn State::in_flight(self : State) -> Int64 {
 /// The round-trip estimate this space has built.
 pub fn State::rtt(self : State) -> Rtt {
   self.rtt
+}
+
+///|
+/// The rate to pace at, in bytes per microsecond (RFC 9002 §7.7): what the controller says when
+/// it models the path, else the window over one and a quarter round trips, which is what keeps
+/// a window from arriving as a burst.
+pub fn State::pacing_rate(self : State) -> Double {
+  if self.control.pacing_rate() is Some(rate) && rate > 0.0 {
+    return rate
+  }
+  let smoothed = if self.rtt.smoothed() > 0L {
+    self.rtt.smoothed()
+  } else {
+    self.policy.initial_rtt
+  }
+  self.control.window().to_double() / (smoothed.to_double() * 1.25)
 }
 
 ///|

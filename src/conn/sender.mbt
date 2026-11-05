@@ -56,6 +56,8 @@ pub struct Sender {
   mut next_pn : Int64
   mut ack_exponent : Int32
   mut probes : Int32
+  /// RFC 9002 §7.7: the bucket the window is spread over instead of sent as a burst.
+  priv pacer : @recovery.Pacer
 }
 
 ///|
@@ -92,7 +94,15 @@ pub fn Sender::new(
     next_pn: 0L,
     ack_exponent: 3,
     probes: 0,
+    pacer: @recovery.Pacer::new(burst_bytes=burst_of(max_datagram_size)),
   }
+}
+
+///|
+/// How many bytes may leave back to back before the pacing rate applies: ten datagrams, enough
+/// for the ack clock to keep the pipe full without building a queue.
+fn burst_of(datagram : Int64) -> Int64 {
+  10L * datagram
 }
 
 ///|
@@ -254,13 +264,21 @@ fn Sender::next_chunk(self : Sender) -> @stream.Chunk? raise {
 pub fn Sender::poll_send(
   self : Sender,
   now : Int64,
+  zero~ : Bool = false,
 ) -> (Int64, Array[@frame.Frame])? raise {
   let probing = self.probes > 0
   guard self.recovery.can_send(1L) || probing else { return None }
+  // A probe exists to find out whether anything gets through, so it is not paced.
+  guard probing || self.pacer.allow(now, self.max_datagram) else { return None }
   let frames : Array[@frame.Frame] = []
   let carried : Carried = { chunks: [], control: [], }
   let mut size = 0
   while self.control.length() > 0 {
+    // A 0-RTT packet may carry only what RFC 9000 §12.4's Table 3 lets it; anything else waits
+    // for the handshake rather than making the packet illegal.
+    if zero && !permitted_zero_rtt(self.control[0]) {
+      break
+    }
     let cost = @frame.encode(self.control[0]).length()
     if size > 0 && size + cost > control_room {
       break
@@ -292,11 +310,24 @@ pub fn Sender::poll_send(
   if probing {
     self.probes = self.probes - 1
   }
+  self.pacer.spend(now, size.to_int64())
   let pn = self.next_pn
   self.next_pn = self.next_pn + 1L
   self.recovery.on_sent(pn, at=now, size=size.to_int64())
   self.in_packet[pn] = carried
   Some((pn, frames))
+}
+
+///|
+/// Put everything still in flight back in the queue, for the case where a packet space's keys
+/// change under it: 0-RTT refused by the server has to go again as 1-RTT (RFC 9000 §4.6.2).
+/// The congestion state is left alone; those packets come out of flight when they are declared
+/// lost, so the window is not opened twice.
+pub fn Sender::requeue_all(self : Sender) -> Unit {
+  for pn in self.in_packet.keys().collect() {
+    self.requeue(pn)
+  }
+  self.probes = 0
 }
 
 ///|
@@ -356,6 +387,7 @@ pub fn Sender::on_ack(
     _ => 0L
   }
   let lost = self.recovery.on_ack(frame, now, ack_delay=delay)
+  self.pacer.set_rate(self.recovery.pacing_rate())
   for pn in lost {
     self.requeue(pn)
   }
@@ -401,4 +433,17 @@ pub fn Sender::outstanding(self : Sender) -> Array[Int64] {
 /// The current congestion window (bytes).
 pub fn Sender::window(self : Sender) -> Int64 {
   self.recovery.window()
+}
+
+///|
+/// The rate this sender paces at, in bytes per microsecond; zero while it is unpaced.
+pub fn Sender::pacing_rate(self : Sender) -> Double {
+  self.pacer.rate()
+}
+
+///|
+/// When the next datagram's worth of credit accrues, or `None` when it is there now. A driver
+/// that got `None` from `poll_send` arms a timer on this and comes back.
+pub fn Sender::paced_at(self : Sender, now : Int64) -> Int64? {
+  self.pacer.next_at(now, self.max_datagram)
 }

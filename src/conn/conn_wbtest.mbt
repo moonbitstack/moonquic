@@ -937,8 +937,15 @@ test "quic serve: closing a connection puts CONNECTION_CLOSE on the wire (RFC 90
 test "quic serve: an ECN-enabled peer's ACK_ECN advances the acknowledged number (RFC 9000 §19.3.2)" {
   let server : Endpoint[String] = Endpoint::new(Config::default())
   let cid = qv_hexb("8394c8f03e515708")
+  server.recv(qs_initial(cid, b"\xaa", 0L, [@frame.Ping]), "peer", 0L)
+  let conn = qs_conn(server, cid)
+  // Eight packets out first: RFC 9000 §13.1 makes acknowledging a packet never sent a
+  // protocol violation, so there has to be something to acknowledge.
+  for _ in 0..<8 {
+    conn.send(Level::Initial, [@frame.Ping])
+  }
   server.recv(
-    qs_initial(cid, b"\xaa", 0L, [
+    qs_initial(cid, b"\xaa", 1L, [
       AckEcn(
         largest=7UL,
         delay=0UL,
@@ -953,7 +960,6 @@ test "quic serve: an ECN-enabled peer's ACK_ECN advances the acknowledged number
     "peer",
     0L,
   )
-  let conn = qs_conn(server, cid)
   assert_eq(conn.largest_acked(Level::Initial), Some(7L))
 }
 

@@ -421,6 +421,14 @@ pub fn Space::largest_acked(self : Space) -> Int64? {
 }
 
 ///|
+/// One past the highest packet number this space has handed out: the first number the peer
+/// cannot have seen, so an acknowledgement of it or anything above names a packet that was
+/// never sent (RFC 9000 §13.1).
+pub fn Space::issued(self : Space) -> Int64 {
+  self.next_pn
+}
+
+///|
 /// Record that packet number `pn` arrived. `ack_eliciting` marks a packet that must be
 /// acknowledged (RFC 9000 §13.2.1); a pure-ACK packet is recorded but does not itself
 /// oblige a new ACK.

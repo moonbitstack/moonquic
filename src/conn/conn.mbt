@@ -122,6 +122,11 @@ pub fn Conn::on_crypto_frame(
   data : Bytes,
 ) -> Bytes raise @stream.Refused {
   let stream = self.crypto_stream(level)
+  // A fragment past the window would have to be held across the gap it leaves. §7.5 lets an
+  // endpoint refuse that, and a handshake with a gap this wide is not going to finish.
+  if offset > stream.limit() {
+    raise @stream.Exceeded(limit=stream.limit(), got=offset)
+  }
   stream.insert(offset, data, fin=false)
   stream.read()
 }

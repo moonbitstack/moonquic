@@ -48,6 +48,10 @@ pub(all) enum Frame {
   PathResponse(Bytes)
   HandshakeDone
   ConnectionClose(error_code~ : UInt64, frame_type~ : UInt64?, reason~ : Bytes)
+  PathAbandon(path_id~ : UInt64, error_code~ : UInt64)
+  PathStatus(path_id~ : UInt64, seq~ : UInt64, available~ : Bool)
+  MaxPathId(max~ : UInt64)
+  PathsBlocked(max~ : UInt64)
 }
 pub fn Frame::acked(Self) -> Array[(UInt64, UInt64)] raise Refused
 pub fn Frame::equal(Self, Self) -> Bool

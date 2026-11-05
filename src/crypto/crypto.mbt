@@ -530,6 +530,41 @@ pub fn retry_ok(
 }
 
 ///|
+/// A tag binding `body` to `key`, for a token an endpoint hands out and takes back (RFC 9000
+/// §8.1.2's address validation token). The construction is the Retry integrity tag's: an AEAD
+/// over an empty plaintext with `body` as associated data, so the answer is the tag alone and a
+/// forgery costs a tag forgery.
+pub fn token_tag(
+  key : BytesView,
+  body : BytesView,
+  suite~ : Suite = suite,
+) -> Bytes {
+  (suite.aead)(key.to_owned()).seal(
+    nonce=Bytes::make(suite.iv, 0),
+    plain=b""[:],
+    aad=body,
+  )
+}
+
+///|
+/// Whether a token's trailing tag is the one `key` gives for everything before it. As with the
+/// Retry tag, the comparison accumulates, so its duration says nothing about the match.
+pub fn token_ok(
+  key : BytesView,
+  token : BytesView,
+  suite~ : Suite = suite,
+) -> Bool {
+  guard token.length() > suite.tag else { return false }
+  let cut = token.length() - suite.tag
+  let want = token_tag(key, token[0:cut], suite~)
+  let mut diff = 0
+  for i = 0; i < suite.tag; i = i + 1 {
+    diff = diff | (want[i].to_int() ^ token[cut + i].to_int())
+  }
+  diff == 0
+}
+
+///|
 /// A view as mutable bytes, since protection XORs a few of them in place.
 fn bytes(b : BytesView) -> Array[Int32] {
   let out = Array::make(b.length(), 0)

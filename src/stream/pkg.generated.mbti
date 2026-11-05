@@ -3,6 +3,7 @@ package "moonbitstack/moonquic/stream"
 
 import {
   "moonbitlang/core/debug",
+  "moonbitlang/core/set",
 }
 
 // Values
@@ -53,6 +54,7 @@ pub fn Assembler::complete(Self) -> Bool
 pub fn Assembler::consumed(Self) -> UInt64
 pub fn Assembler::final_size(Self) -> UInt64?
 pub fn Assembler::insert(Self, UInt64, Bytes, fin~ : Bool) -> Unit raise Refused
+pub fn Assembler::limit(Self) -> UInt64
 pub fn Assembler::new(limit? : UInt64) -> Self
 pub fn Assembler::read(Self) -> Bytes
 
@@ -164,6 +166,7 @@ pub struct Scheduler {
   order : Array[UInt64]
   mut cursor : Int32
   frame : UInt64
+  opened : @set.Set[UInt64]
 }
 pub fn Scheduler::cancel(Self, UInt64) -> Unit
 pub fn Scheduler::new(Budget, frame? : UInt64) -> Self
@@ -171,6 +174,7 @@ pub fn Scheduler::next(Self) -> Chunk? raise Refused
 pub fn Scheduler::on_max_data(Self, UInt64) -> Unit
 pub fn Scheduler::on_max_stream_data(Self, UInt64, UInt64) -> Unit
 pub fn Scheduler::on_params(Self, data~ : UInt64, bidi~ : UInt64, uni~ : UInt64) -> Unit
+pub fn Scheduler::opened(Self, UInt64) -> Bool
 pub fn Scheduler::queue(Self, UInt64, UInt64) -> Unit
 pub fn Scheduler::queue_fin(Self, UInt64) -> Unit
 
@@ -214,8 +218,10 @@ pub struct Streams {
   // private fields
 }
 pub fn Streams::accept(Self, UInt64, UInt64, Bytes, fin~ : Bool) -> Unit raise Refused
+pub fn Streams::contains(Self, UInt64) -> Bool
 pub fn Streams::count(Self) -> Int32
 pub fn Streams::finished(Self, UInt64) -> Bool
+pub fn Streams::limit(Self, bidi~ : Bool) -> UInt64
 pub fn Streams::max_data(Self) -> UInt64?
 pub fn Streams::max_stream_data(Self, UInt64) -> UInt64?
 pub fn Streams::max_streams(Self, bidi~ : Bool) -> UInt64?

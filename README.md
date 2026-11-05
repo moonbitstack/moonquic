@@ -29,9 +29,9 @@ moon run src/examples/04-crypto     moon run src/examples/07-recovery
 | `frame` | [§19](https://www.rfc-editor.org/rfc/rfc9000#section-19) every frame type, and [§19.3.1](https://www.rfc-editor.org/rfc/rfc9000#section-19.3.1) the ACK range encoding both ways | **0.1.0** |
 | `packet` | [§17](https://www.rfc-editor.org/rfc/rfc9000#section-17) long and short headers, Retry, Version Negotiation, [§17.1](https://www.rfc-editor.org/rfc/rfc9000#section-17.1) packet numbers, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces | **0.1.0** |
 | `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update | **0.1.0** |
-| `recovery` | [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) the round-trip estimate, both loss thresholds, the probe timeout, and NewReno, CUBIC ([RFC 9438](https://www.rfc-editor.org/rfc/rfc9438)) and BBR behind one controller trait, with persistent congestion | **0.1.0** |
+| `recovery` | [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) the round-trip estimate, both loss thresholds, the probe timeout, and NewReno, CUBIC ([RFC 9438](https://www.rfc-editor.org/rfc/rfc9438)) and BBR behind one controller trait, with persistent congestion; [§7.7](https://www.rfc-editor.org/rfc/rfc9002#section-7.7) pacing as a token bucket over bytes | **0.1.0** |
 | `stream` | [§2](https://www.rfc-editor.org/rfc/rfc9000#section-2) stream IDs and reassembly, [§3](https://www.rfc-editor.org/rfc/rfc9000#section-3) both state machines, [§4](https://www.rfc-editor.org/rfc/rfc9000#section-4) data flow control and the stream quota, and a round-robin scheduler | **0.1.0** |
-| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams, and 0-RTT packets | **0.1.0** |
+| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams, 0-RTT packets, [§6](https://www.rfc-editor.org/rfc/rfc9000#section-6) Retry and version negotiation, the frame and parameter checks [§12.4](https://www.rfc-editor.org/rfc/rfc9000#section-12.4) and [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) require, many client connections on one id space, and the first stage of [multipath](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/) | **0.1.0** |
 
 `frame` and `packet` are pure codecs over [`moonvar/quic`](https://github.com/moonbitstack/moonvar), so a tool that only wants to read packets off a capture links nothing else — the variable-length integer went to a library of its own, because QUIC is not the only thing that writes one.
 
@@ -91,15 +91,58 @@ for datagram in receive() {
 
 `alpn` and `suite_code` say what the handshake settled on once it is done, and `server_cid` is the id the peer wants addressed. Once it is connected the client carries streams: `write` and `read` are the same shape as the server's, and `take_events` says when a stream is readable.
 
-A server's tickets come in 1-RTT CRYPTO frames after the handshake and land in the client's `@tls.Sessions`. A client given one of them and `early=true` has its early keys before its first packet goes out, so frames queued now leave in 0-RTT packets until the handshake finishes. `send_zero_rtt` answers false when there is no ticket to protect them with, and `early_accepted` says afterwards whether the server took them:
+A client has a clock as well, and nothing moves without it. `tick` runs the probe timeout on each handshake level, the send loop's own, the idle timeout and the closing period, and it sends the padded Initial with a PING that a server whose amplification budget is spent needs before it can answer (RFC 9002 §6.2.2.1):
 
 ```moonbit
-let queued = client.send_zero_rtt([
-  @frame.Stream(id=0UL, offset=0UL, fin=false, data=request),
-])
+client.tick(now)
+for datagram in client.poll_out(now) { send(datagram, to) }
 ```
 
+`close` takes the same arguments as the server's and names the level by what is available: before 1-RTT keys exist, an application close goes as a transport close carrying `APPLICATION_ERROR`, because §10.2.3 leaves no other way to say it.
+
+A server's tickets come in 1-RTT CRYPTO frames after the handshake and land in the client's `@tls.Sessions`. A client given one of them and `early=true` has its early keys before its first packet goes out, so anything written now leaves in 0-RTT packets until the handshake finishes:
+
+```moonbit
+client.write(0UL, request, fin=true)
+for datagram in client.poll_out(now) { send(datagram, to) }
+```
+
+Early data spends the flow-control credit the previous connection left, which a resuming client supplies as `Config.zero_rtt_data` and `Config.zero_rtt_stream_data` — RFC 9000 §7.4.1 forbids guessing it, and zero means early data waits for the handshake rather than risking a flow-control error. `early_accepted` says afterwards whether the server took it; if it did not, everything still in flight is queued again and leaves as 1-RTT, so a refused early write costs a round trip rather than the data.
+
 A server allows it with `@tls.Tickets::new(keys, early=n)`, and judges tickets at the `wall` argument of `Endpoint::recv`: seconds since the Unix epoch, a different clock from `now`, which is in microseconds and only drives timers. An endpoint given no `wall` neither issues nor takes a ticket. 0-RTT data can be replayed by whoever recorded it (RFC 8446 §8), so it stays off until a server sets `early`. `install_zero_rtt` remains for keys that came from elsewhere.
+
+## Several connections on one socket
+
+One client endpoint holds many connections and tells their datagrams apart by connection id, which is all §5.2 asks of the routing:
+
+```moonbit
+let endpoint = @conn.ClientEndpoint::new(@conn.Config::default(), rand=entropy)
+let id = endpoint.connect(
+  @tls.Client::new(roots, alpn=["h3"]),
+  "a.example",
+  params,
+  now,
+)
+endpoint.recv(datagram, now)
+for answer in endpoint.poll_out(now) { send(answer, to) }
+endpoint.tick(now)
+let client = endpoint.client(id).unwrap()
+```
+
+`connect` adds the `initial_source_connection_id` parameter itself when the block does not carry one, since the id it hands back is drawn inside the call. `ids` and `count` say what the endpoint holds, and `remove` forgets a connection that has closed.
+
+## Paths
+
+The first stage of [multipath](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/) is here: the `initial_max_path_id` transport parameter, the four frames the draft assigns from `0x15228c00` — PATH_ABANDON, PATH_STATUS in its available and backup forms, MAX_PATH_ID and PATHS_BLOCKED — and the path state a connection keeps. A path has an id both ends use, the connection id traffic on it is addressed by, whether it has answered a challenge, and the peer's latest word on whether it is available:
+
+```moonbit
+let paths = conn.paths()
+paths.on_max_path_id(2UL)          // what the peer said it will accept
+paths.bind(1UL, spare_cid)         // give a path an id of its own
+conn.send(@conn.Level::Application, [@frame.PathStatus(path_id=1UL, seq=1UL, available=true)])
+```
+
+What the first stage does not do is give each path its own packet-number space and congestion state: that is what the draft's §3.4 asks for next, and it needs the packet-number space to grow a path dimension rather than a second space beside it. Until then a connection keeps one path's worth of numbering, and `Paths` holds everything the two ends have to agree on before that can be built.
 
 ## Datagrams
 
@@ -141,7 +184,9 @@ A connection moves only for a packet that authenticated, is the newest seen, and
 
 A server hands out spare connection ids up to what the client will hold and `Config.connection_ids` allows, and replaces the ones retired. `Client::next_cid` moves to one, for a change of path nobody should be able to link to the last. `Client::update_keys` starts a key update, and either end follows the other's.
 
-Connection migration, path validation, stateless reset, 0-RTT and the client's 1-RTT stream layer are here. A client `Endpoint` over many connections, and multipath, are the next step.
+Connection migration, path validation, stateless reset, 0-RTT, the client's 1-RTT stream layer, many client connections on one id space and the first stage of multipath are here.
+
+A server can ask a client to prove its address before keeping anything for it: `Config.retry` answers the first Initial with a Retry whose token carries the client's address, the connection id its Initial named and when it was issued, tagged with a key only the server holds (RFC 9000 §8.1.2). The second Initial is opened with the Initial keys the Retry's id yields, and `retry_source_connection_id` names that id so the client can hold the handshake to it (§7.3). A token older than ten seconds, or tagged with another key, or stamped for another address, draws a fresh Retry; a replayed Initial finds the connection already there and is dropped as a duplicate.
 
 A signing key never enters this library. A server's handshake flight takes the CertificateVerify as a function of the transcript hash, so whoever holds the key builds the body at the one moment §4.4.3 says to sign — `@conn.signed(key)` is that function for a `@spec.Signer`.
 
@@ -150,6 +195,50 @@ A signing key never enters this library. A server's handshake flight takes the C
 Packet protection is checked against [RFC 9001 Appendix A](https://www.rfc-editor.org/rfc/rfc9001#appendix-A), read out of the RFC's own text rather than typed in. The A.3 server Initial seals to the published 135-byte packet byte for byte and opens back to its payload, which in one assertion covers the Initial salt, all four HKDF labels, the key and IV lengths, the nonce construction, AES-128-GCM, header protection, the truncated packet number, and the Initial header's token and Length fields. A.1's secrets, A.2's header-protection mask and A.4's Retry integrity tag are checked separately, so a failure says which step broke.
 
 The gate is `moon clean` → `moon fmt` → `moon check --target all --deny-warn` → `moon build --target all` → `moon test --target all`, across `wasm`, `wasm-gc`, `js` and `native`.
+
+## Conformance
+
+[h3spec](https://github.com/kazu-yamamoto/h3spec) v0.1.14's "QUIC servers" section is the authority on what a server must refuse, and every case is mirrored in `src/conn/h3spec_wbtest.mbt`, each test naming the RFC section it comes from. The cases that need a frame in a live 1-RTT packet take one from a connected client, the way the tool injects them.
+
+| h3spec case | RFC | code |
+|:--|:--|:--|
+| STREAM offset past the stream's credit | 4.1 | `FLOW_CONTROL_ERROR` |
+| stream id past the limit | 4.6 | `STREAM_LIMIT_ERROR` |
+| `initial_source_connection_id` missing | 7.3 | `TRANSPORT_PARAMETER_ERROR` |
+| a client declaring a server's parameter | 18.2 | `TRANSPORT_PARAMETER_ERROR` |
+| a parameter whose value is not a varint | 18.1 | `TRANSPORT_PARAMETER_ERROR` |
+| `max_udp_payload_size` below 1200 | 18.2 | `TRANSPORT_PARAMETER_ERROR` |
+| `ack_delay_exponent` above 20 | 18.2 | `TRANSPORT_PARAMETER_ERROR` |
+| `max_ack_delay` at or above 2^14 | 18.2 | `TRANSPORT_PARAMETER_ERROR` |
+| `initial_max_streams_*` past 2^60 | 18.2 | `TRANSPORT_PARAMETER_ERROR` |
+| ACK range below packet zero | 19.3.1 | `FRAME_ENCODING_ERROR` |
+| ACK of a packet never sent | 13.1 | `PROTOCOL_VIOLATION` |
+| a frame of unknown type | 12.4 | `FRAME_ENCODING_ERROR` |
+| a packet with no frames | 12.4 | `PROTOCOL_VIOLATION` |
+| reserved bits set in a Handshake or 1-RTT packet | 17.2 | `PROTOCOL_VIOLATION` |
+| CRYPTO buffered past the limit | 7.5 | `CRYPTO_BUFFER_EXCEEDED` |
+| PATH_CHALLENGE, DATA_BLOCKED or STREAM_DATA_BLOCKED in a Handshake packet | 12.4 | `PROTOCOL_VIOLATION` |
+| RETIRE_CONNECTION_ID for an id never issued | 19.16 | `PROTOCOL_VIOLATION` |
+| RESET_STREAM or STREAM on a send-only stream | 19.4, 19.8 | `STREAM_STATE_ERROR` |
+| STREAM on a locally initiated stream not opened | 19.8 | `STREAM_STATE_ERROR` |
+| STOP_SENDING or MAX_STREAM_DATA for a stream that does not exist | 19.5, 19.10 | `STREAM_STATE_ERROR` |
+| MAX_STREAM_DATA for a receive-only stream | 19.10 | `STREAM_STATE_ERROR` |
+| invalid MAX_STREAMS | 19.11 | `FRAME_ENCODING_ERROR` |
+| invalid STREAMS_BLOCKED | 19.14 | `STREAM_LIMIT_ERROR` |
+| NEW_CONNECTION_ID with a zero-length id or a bad `retire_prior_to` | 19.15 | `FRAME_ENCODING_ERROR` |
+| NEW_TOKEN or HANDSHAKE_DONE from a client | 19.7, 19.20 | `PROTOCOL_VIOLATION` |
+| KeyUpdate in Handshake or 1-RTT | RFC 9001 §6 | `CRYPTO_ERROR` with `unexpected_message` |
+| EndOfEarlyData, or no ALPN overlap | RFC 8446 | `CRYPTO_ERROR` with the alert |
+
+`scripts/quic/check_h3spec.sh <host> <port>` downloads that pinned release and runs the section against a server. It is a client, so it needs a server on the other end: this library has no socket, and the harness that binds one is the server repository's.
+
+Run against a server built on this library, 40 of the 43 examples pass. The three that do not:
+
+| case | what happens |
+|:--|:--|
+| CRYPTO_BUFFER_EXCEEDED (§7.5) | the injected fragment rides a Handshake packet, and by then the server has discarded the Handshake keys (§4.9.2), so the packet is dropped before the frame is read |
+| STREAM for a locally initiated stream not created (§19.8) | the same rule the handshake applies is in place and covered by a test; the live case arrives in a packet the server does not read, and why is still open |
+| KeyUpdate in 1-RTT (§6) | the alert is raised by the handshake and turned into a close, which the unit test covers; the live case does not reach it, and why is still open |
 
 ## License
 

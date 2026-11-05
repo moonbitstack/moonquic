@@ -45,6 +45,7 @@ pub fn Bbr::on_lost(Self, Int64) -> Unit
 pub fn Bbr::on_persistent(Self) -> Unit
 pub fn Bbr::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
 pub fn Bbr::on_sent(Self, Int64) -> Unit
+pub fn Bbr::pacing_rate(Self) -> Double?
 pub fn Bbr::target(Self) -> Int64
 pub fn Bbr::window(Self) -> Int64
 
@@ -69,6 +70,7 @@ pub fn Cubic::on_lost(Self, Int64) -> Unit
 pub fn Cubic::on_persistent(Self) -> Unit
 pub fn Cubic::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
 pub fn Cubic::on_sent(Self, Int64) -> Unit
+pub fn Cubic::pacing_rate(Self) -> Double?
 pub fn Cubic::recovering(Self, Int64) -> Bool
 pub fn Cubic::ssthresh(Self) -> Int64
 pub fn Cubic::target(Self, Int64) -> Int64
@@ -112,9 +114,20 @@ pub fn NewReno::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
 pub fn NewReno::on_lost(Self, Int64) -> Unit
 pub fn NewReno::on_persistent(Self) -> Unit
 pub fn NewReno::on_sent(Self, Int64) -> Unit
+pub fn NewReno::pacing_rate(Self) -> Double?
 pub fn NewReno::recovering(Self, Int64) -> Bool
 pub fn NewReno::ssthresh(Self) -> Int64
 pub fn NewReno::window(Self) -> Int64
+
+pub struct Pacer {
+  // private fields
+}
+pub fn Pacer::allow(Self, Int64, Int64) -> Bool
+pub fn Pacer::new(burst_bytes? : Int64) -> Self
+pub fn Pacer::next_at(Self, Int64, Int64) -> Int64?
+pub fn Pacer::rate(Self) -> Double
+pub fn Pacer::set_rate(Self, Double) -> Unit
+pub fn Pacer::spend(Self, Int64, Int64) -> Unit
 
 pub(all) struct Policy {
   packets : Int64
@@ -172,6 +185,7 @@ pub fn State::on_new_path(Self) -> Unit
 pub fn State::on_pto(Self) -> Unit
 pub fn State::on_sent(Self, Int64, at~ : Int64, size~ : Int64) -> Unit
 pub fn State::outstanding(Self) -> Array[Int64]
+pub fn State::pacing_rate(Self) -> Double
 pub fn State::pto(Self) -> Int64
 pub fn State::pto_count(Self) -> Int32
 pub fn State::pto_deadline(Self) -> Int64?
@@ -192,4 +206,5 @@ pub(open) trait Control {
   fn on_ack_at(Self, Int64, now~ : Int64) -> Unit = _
   fn on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit = _
   fn on_new_path(Self) -> Unit = _
+  fn pacing_rate(Self) -> Double? = _
 }

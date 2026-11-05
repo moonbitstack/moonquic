@@ -38,6 +38,10 @@ pub fn secret(BytesView, suite? : Suite, version? : Version) -> Bytes
 
 pub let suite : Suite
 
+pub fn token_ok(BytesView, BytesView, suite? : Suite) -> Bool
+
+pub fn token_tag(BytesView, BytesView, suite? : Suite) -> Bytes
+
 pub fn update(BytesView, suite? : Suite, version? : Version) -> Bytes
 
 pub let version : Version

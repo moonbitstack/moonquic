@@ -98,6 +98,7 @@ pub struct Space {
 pub fn Space::ack_pending(Self) -> Bool
 pub fn Space::advance_past(Self, Int64) -> Unit
 pub fn Space::build_ack(Self, UInt64) -> @frame.Frame?
+pub fn Space::issued(Self) -> Int64
 pub fn Space::largest_acked(Self) -> Int64?
 pub fn Space::largest_received(Self) -> Int64
 pub fn Space::new() -> Self

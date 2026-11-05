@@ -58,6 +58,18 @@ pub(all) struct Config {
   /// How many connection ids a peer may hold at once, the handshake's among them, however many it
   /// says it will take (RFC 9000 §5.1.1). Four is quic-go's default, and one offers no spares.
   connection_ids : UInt64
+  /// The flow-control credit the last connection left, which a resuming client may spend on
+  /// 0-RTT data before the server's parameters arrive (RFC 9000 §7.4.1). Zero, the default,
+  /// means early data waits for the handshake rather than risking a flow-control error.
+  zero_rtt_data : UInt64
+  zero_rtt_stream_data : UInt64
+  /// Whether this server answers a client's first Initial with a Retry, so the address is
+  /// proved before any state is kept for it (RFC 9000 §8.1.2). Off by default: it costs a round
+  /// trip and only pays off where source addresses are cheap to forge.
+  retry : Bool
+  /// The largest path id this endpoint will accept (draft-ietf-quic-multipath §3). Zero, the
+  /// default, means one path: multipath is not offered.
+  max_path_id : UInt64
 }
 
 ///|
@@ -75,6 +87,19 @@ let protocol_violation : UInt64 = 0x0aUL
 ///|
 /// FRAME_ENCODING_ERROR (RFC 9000 §20.1).
 let frame_encoding_error : UInt64 = 0x07UL
+
+///|
+/// STREAM_LIMIT_ERROR: the peer opened more streams than this end allowed (RFC 9000 §20.1).
+let stream_limit_error : UInt64 = 0x04UL
+
+///|
+/// STREAM_STATE_ERROR: a frame named a stream in a state it cannot be in (RFC 9000 §20.1).
+let stream_state_error : UInt64 = 0x05UL
+
+///|
+/// APPLICATION_ERROR, which a close sent before 1-RTT keys carries in place of the
+/// application's own code (RFC 9000 §10.2.3).
+let application_error : UInt64 = 0x0cUL
 
 ///|
 /// The base of the CRYPTO_ERROR codes: a TLS alert closes a connection with this plus its
@@ -110,6 +135,10 @@ pub fn Config::default() -> Config {
     streams_uni: 100UL,
     max_datagram_frame_size: 0UL,
     connection_ids: 4UL,
+    zero_rtt_data: 0UL,
+    zero_rtt_stream_data: 0UL,
+    retry: false,
+    max_path_id: 0UL,
   }
 }
 
@@ -192,6 +221,7 @@ pub struct Session[A] {
   priv mut moved : Moved[A]?
   priv probes : Array[(Bytes, A)]
   priv ids : Ids
+  priv paths : Paths
 }
 
 ///|
@@ -214,13 +244,21 @@ fn[A] Session::new(
   cfg : Config,
   now : Int64,
   original~ : Bytes = cid,
+  initial? : Bytes,
   tls? : @tls.Conn,
 ) -> Session[A] {
   {
     peer,
     cid,
     peer_cid,
-    core: Server::new(original),
+    // The Initial keys come from the Destination Connection ID of the packet that arrived,
+    // which after a Retry is the id the Retry named rather than the first one (RFC 9001 §5.2).
+    core: Server::new(
+      match initial {
+        Some(id) => id
+        None => original
+      },
+    ),
     sender: Sender::new(
       cfg.initial_max_data,
       cfg.initial_max_stream_data,
@@ -272,8 +310,16 @@ fn[A] Session::new(
     moved: None,
     probes: [],
     ids: Ids::new(),
+    paths: Paths::new(local_max=cfg.max_path_id),
     zero_rtt_rx: None,
   }
+}
+
+///|
+/// This connection's paths (draft-ietf-quic-multipath §3): path 0 is the handshake's, and any
+/// others are the ones the two ends have agreed to keep.
+pub fn[A] Session::paths(self : Session[A]) -> Paths {
+  self.paths
 }
 
 ///|
@@ -644,6 +690,35 @@ fn[A : Eq] Session::on_datagram(
 }
 
 ///|
+/// What a frame check on this connection runs against.
+fn[A] Session::standing(self : Session[A], level : Level) -> Standing {
+  {
+    server: true,
+    streams: self.streams,
+    sched: self.sender.sched,
+    sent: self.core.conn.space(level).issued(),
+  }
+}
+
+///|
+/// Hold a packet's frames to RFC 9000 and close the connection when one of them is not allowed.
+/// Answers whether the connection is still active.
+fn[A] Session::admit(
+  self : Session[A],
+  level : Level,
+  frames : Array[@frame.Frame],
+  now : Int64,
+) -> Bool {
+  match frames_fault(level, frames, self.standing(level)) {
+    Some(fault) => {
+      self.close(fault.code, fault.reason, now)
+      false
+    }
+    None => true
+  }
+}
+
+///|
 fn[A] Session::on_initial(
   self : Session[A],
   datagram : Bytes,
@@ -651,22 +726,31 @@ fn[A] Session::on_initial(
 ) -> Unit raise {
   guard !self.initial_gone else { return }
   let space = self.core.conn.space(Level::Initial)
-  let opened = recv_long(
+  let opened : (Array[@frame.Frame], Int64)? = recv_long(
     datagram,
     self.core.initial_keys,
     largest=space.largest_received(),
   ) catch {
-    _ => None
+    // The payload authenticated but its frames do not parse: RFC 9000 §12.4 closes for that.
+    _ => return self.close(frame_encoding_error, b"", now)
   }
   // A datagram that does not authenticate is discarded, not an error: an endpoint cannot
   // tell a corrupted packet from an injected one (RFC 9000 §12.2).
   guard opened is Some((frames, pn)) else { return }
   self.last_rx = now
+  guard !space.seen(pn) else { return }
+  // RFC 9000 §17.2.2: the reserved bits are protected, so only a packet that opened can be
+  // found with them set.
+  let at = match @packet.read_header(datagram) {
+    Some((_, tail)) => tail.at
+    None => return
+  }
+  if reserved_set(datagram, self.core.initial_keys, at, short=false) {
+    return self.close(protocol_violation, b"reserved bits set", now)
+  }
+  guard self.admit(Level::Initial, frames, now) else { return }
   match self.tls {
-    Some(tls) => {
-      guard !space.seen(pn) else { return }
-      self.on_crypto(tls, Level::Initial, frames, pn, now)
-    }
+    Some(tls) => self.on_crypto(tls, Level::Initial, frames, pn, now)
     None => {
       let _ = self.core.on_frames(Level::Initial, frames, pn)
       self.adopt_peer_params()
@@ -683,17 +767,29 @@ fn[A] Session::on_handshake(
 ) -> Unit raise {
   guard self.hs_rx is Some(keys) && !self.handshake_gone else { return }
   let space = self.core.conn.space(Level::Handshake)
-  let opened = recv_long(datagram, keys, largest=space.largest_received()) catch {
-    _ => None
+  let opened : (Array[@frame.Frame], Int64)? = recv_long(
+    datagram,
+    keys,
+    largest=space.largest_received(),
+  ) catch {
+    _ => return self.close(frame_encoding_error, b"", now)
   }
   guard opened is Some((frames, pn)) else { return }
   self.last_rx = now
+  guard !space.seen(pn) else { return }
+  let at = match @packet.read_header(datagram) {
+    Some((_, tail)) => tail.at
+    None => return
+  }
+  if reserved_set(datagram, keys, at, short=false) {
+    return self.close(protocol_violation, b"reserved bits set", now)
+  }
+  guard self.admit(Level::Handshake, frames, now) else { return }
   // A Handshake packet the peer could only have sent from the address it claims proves that
   // address, which lifts the amplification limit (RFC 9000 §8.1).
   self.validated = true
   match self.tls {
     Some(tls) => {
-      guard !space.seen(pn) else { return }
       // RFC 9001 §4.9.1: a server is done with the Initial keys at its first Handshake packet.
       self.initial_gone = true
       self.initial_out.clear()
@@ -717,12 +813,27 @@ fn[A] Session::on_zero_rtt(
 ) -> Unit raise {
   guard self.zero_rtt_rx is Some(keys) else { return }
   let space = self.core.conn.space(Level::Application)
-  let opened = recv_long(packet, keys, largest=space.largest_received()) catch {
-    _ => None
+  let opened : (Array[@frame.Frame], Int64)? = recv_long(
+    packet,
+    keys,
+    largest=space.largest_received(),
+  ) catch {
+    _ => return self.close(frame_encoding_error, b"", now)
   }
   guard opened is Some((frames, pn)) else { return }
   self.last_rx = now
   guard !space.seen(pn) else { return }
+  let at = match @packet.read_header(packet) {
+    Some((_, tail)) => tail.at
+    None => return
+  }
+  if reserved_set(packet, keys, at, short=false) {
+    return self.close(protocol_violation, b"reserved bits set", now)
+  }
+  match zero_rtt_fault(frames) {
+    Some(fault) => return self.close(fault.code, fault.reason, now)
+    None => ()
+  }
   self.core.conn.on_packet_received(
     Level::Application,
     pn,
@@ -749,11 +860,17 @@ fn[A : Eq] Session::on_app(
   let space = self.core.conn.space(Level::Application)
   let largest = space.largest_received()
   let addressed = datagram[1:1 + self.cid.length()].to_owned()
-  let opened = self.open_app(datagram, keys, largest)
+  let opened = self.open_app(datagram, keys, largest) catch {
+    _ => return self.close(frame_encoding_error, b"", now)
+  }
   guard opened is Some((frames, pn)) else { return }
   if self.tls is Some(_) && space.seen(pn) {
     return
   }
+  if reserved_set(datagram, keys, 1 + self.cid.length(), short=true) {
+    return self.close(protocol_violation, b"reserved bits set", now)
+  }
+  guard self.admit(Level::Application, frames, now) else { return }
   self.last_rx = now
   self.core.conn.on_packet_received(
     Level::Application,
@@ -766,6 +883,11 @@ fn[A : Eq] Session::on_app(
     self.on_other_path(frames, pn > largest, from, addressed, nonce, size, now)
   }
   self.ids.heard_on = addressed
+  // RFC 9001 §4.1.3: TLS keeps speaking at 1-RTT, and what it says there is a key update or a
+  // ticket. A KeyUpdate is an error in QUIC, which the handshake raises as an alert.
+  if self.tls is Some(tls) {
+    self.feed_crypto(tls, Level::Application, frames, now)
+  }
   self.on_frames(Level::Application, frames, now)
 }
 
@@ -825,6 +947,14 @@ fn[A] Session::on_frames(
             self.events.push(Event::Datagram)
           }
         }
+      PathAbandon(path_id~, ..) => ignore(self.paths.abandon(path_id))
+      PathStatus(path_id~, seq~, available~) => {
+        if path_id > self.paths.local_max() {
+          return self.close(protocol_violation, b"a path never agreed", now)
+        }
+        ignore(self.paths.on_status(path_id, seq, available))
+      }
+      MaxPathId(max~) => self.paths.on_max_path_id(max)
       NewConnectionId(seq~, retire_prior_to~, conn_id~, reset_token~) if live =>
         self.on_new_id(seq, retire_prior_to, conn_id, reset_token, now)
       RetireConnectionId(seq) if live => self.on_retire_id(seq, now)
@@ -870,6 +1000,8 @@ fn[A] Session::on_stream(
     return self.close(0x0aUL, b"STREAM outside 1-RTT", now)
   }
   self.streams.accept(id, offset, data, fin~) catch {
+    // The stream count was checked with the rest of the frame, so what is left here is a byte
+    // limit, either the stream's or the connection's (RFC 9000 §4.1).
     e => return self.close(stream_error(e), b"", now)
   }
   // A frame for a stream already released was dropped above, and is no news.

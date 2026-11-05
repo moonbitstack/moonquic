@@ -78,6 +78,16 @@ fn Outbox::tick(self : Outbox, now : Int64, pto : Int64) -> Unit {
 }
 
 ///|
+/// Send the stream from the start again, keeping what was written: what a Retry needs, since the
+/// ClientHello has to go out under the new Initial keys at offset zero (RFC 9000 §17.2.5.3).
+fn Outbox::rewind(self : Outbox) -> Unit {
+  self.next = 0
+  self.lost.clear()
+  self.flight.clear()
+  self.backoff = 0
+}
+
+///|
 fn Outbox::clear(self : Outbox) -> Unit {
   self.bytes = b""
   self.next = 0
@@ -111,6 +121,7 @@ fn declared(
   original : Bytes,
   cid : Bytes,
   token : Bytes,
+  retry~ : Bytes?,
 ) -> Bytes {
   let limits = Limits::new(
     idle_timeout=(cfg.idle_timeout / 1000L).reinterpret_as_uint64(),
@@ -126,6 +137,15 @@ fn declared(
   let params = limits.params()
   params.push({ kind: OriginalDcid, value: original, })
   params.push({ kind: InitialScid, value: cid, })
+  if cfg.max_path_id > 0UL {
+    // draft-ietf-quic-multipath §3: offering a second path is this parameter and nothing else.
+    params.push(Param::int(InitialMaxPathId, cfg.max_path_id))
+  }
+  // §7.3: after a Retry the client checks that this is the id the Retry named.
+  match retry {
+    Some(retry) => params.push({ kind: RetryScid, value: retry, })
+    None => ()
+  }
   // Without this a reset this endpoint sends means nothing to the peer (RFC 9000 §10.3).
   params.push({ kind: StatelessResetToken, value: token, })
   encode(params[:])
@@ -179,6 +199,20 @@ fn[A] Session::on_crypto(
     pn,
     @packet.payload_elicits_ack(frames),
   )
+  self.feed_crypto(tls, level, frames, now)
+}
+
+///|
+/// Give a packet's CRYPTO bytes to the handshake and do what it asks, without touching the
+/// packet-number space: the 1-RTT messages a connection reads after the handshake — a key
+/// update, a ticket — arrive in packets already accounted for.
+fn[A] Session::feed_crypto(
+  self : Session[A],
+  tls : @tls.Conn,
+  level : Level,
+  frames : Array[@frame.Frame],
+  now : Int64,
+) -> Unit {
   for frame in frames {
     guard frame is Crypto(offset~, data~) else { continue }
     let ready = self.core.conn.on_crypto_frame(level, offset, data) catch {
@@ -235,6 +269,10 @@ fn[A] Session::adopt_declared(
   guard tls.peer_params() is Some(raw) else { return }
   guard decode_opt(raw[:]) is Some(params) else {
     return self.close(transport_parameter_error, b"", now)
+  }
+  match params_fault(params[:], server=true) {
+    Some(fault) => return self.close(fault.code, fault.reason, now)
+    None => ()
   }
   match find(params[:], InitialScid) {
     Some(p) if p.value == self.peer_cid => ()
@@ -370,12 +408,12 @@ fn[A] Session::open_app(
   packet : Bytes,
   keys : @crypto.Keys,
   largest : Int64,
-) -> (Array[@frame.Frame], Int64)? {
+) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
   let n = self.cid.length()
-  let opened = recv_short(packet, n, keys, largest~) catch { _ => None }
+  let opened = recv_short(packet, n, keys, largest~)
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
   let (rx_secret, next) = roll(self.app_rx_secret, keys, self.suite)
-  let moved = recv_short(packet, n, next, largest~) catch { _ => None }
+  let moved = recv_short(packet, n, next, largest~)
   guard moved is Some(_) && self.app_tx is Some(tx) else { return None }
   let (tx_secret, written) = roll(self.app_tx_secret, tx, self.suite)
   self.app_rx = Some(next)

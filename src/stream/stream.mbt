@@ -507,6 +507,12 @@ pub fn Assembler::new(limit~ : UInt64 = limit) -> Assembler {
 }
 
 ///|
+/// How many bytes this reassembler will hold before refusing more (RFC 9000 §7.5).
+pub fn Assembler::limit(self : Assembler) -> UInt64 {
+  self.limit
+}
+
+///|
 /// The next contiguous offset the reader has taken.
 pub fn Assembler::consumed(self : Assembler) -> UInt64 {
   self.consumed
@@ -913,6 +919,24 @@ pub fn Streams::count(self : Streams) -> Int32 {
 }
 
 ///|
+/// Whether `id` is being tracked — a stream the peer opened, or one this end opened and the
+/// peer has since sent something on.
+pub fn Streams::contains(self : Streams, id : UInt64) -> Bool {
+  self.streams.contains(id)
+}
+
+///|
+/// How many streams of that kind the peer may open, which is what a stream ID past it exceeds
+/// (RFC 9000 §4.6).
+pub fn Streams::limit(self : Streams, bidi~ : Bool) -> UInt64 {
+  if bidi {
+    self.bidi.limit
+  } else {
+    self.uni.limit
+  }
+}
+
+///|
 /// Stream `id`'s receive window, for the MAX_STREAM_DATA a reader's progress earns.
 pub fn Streams::window(self : Streams, id : UInt64) -> Window {
   self.open(id).window
@@ -980,12 +1004,16 @@ pub struct Scheduler {
   order : Array[UInt64]
   mut cursor : Int32
   frame : UInt64
+  /// The streams this end has ever opened. `streams` drops one when its last frame goes out,
+  /// but the peer may still answer on a bidirectional stream, and §19.8 turns on whether this
+  /// end ever created it.
+  opened : Set[UInt64]
 }
 
 ///|
 /// A scheduler over `budget`, with frames capped at `frame` bytes.
 pub fn Scheduler::new(budget : Budget, frame~ : UInt64 = frame) -> Scheduler {
-  { budget, streams: Map([]), order: [], cursor: 0, frame, }
+  { budget, streams: Map([]), order: [], cursor: 0, frame, opened: Set([]), }
 }
 
 ///|
@@ -1001,6 +1029,13 @@ pub fn Scheduler::on_params(
   self.budget.on_max_data(data)
   self.budget.initial = bidi
   self.budget.uni = uni
+}
+
+///|
+/// Whether this end has opened stream `id`: a STREAM frame from the peer on it would be
+/// STREAM_STATE_ERROR (RFC 9000 §19.8).
+pub fn Scheduler::opened(self : Scheduler, id : UInt64) -> Bool {
+  self.opened.contains(id)
 }
 
 ///|
@@ -1059,6 +1094,7 @@ fn Scheduler::ensure(self : Scheduler, id : UInt64) -> Out {
       let o = { pending: 0, offset: 0, fin_queued: false, fin_sent: false, }
       self.streams[id] = o
       self.order.push(id)
+      self.opened.add(id)
       o
     }
   }

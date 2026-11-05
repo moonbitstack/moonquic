@@ -11,6 +11,7 @@
 // point takes `now`, and the signing key arrives as a `@spec.Signer` the caller keeps.
 import {
   "moonbitstack/moonvar/quic",
+  "moonbitstack/moonvar/fixed",
   "moonbitstack/moonquic/frame",
   "moonbitstack/moonquic/packet",
   "moonbitstack/moonquic/crypto",

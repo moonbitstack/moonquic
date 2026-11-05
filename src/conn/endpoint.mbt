@@ -15,6 +15,10 @@ pub struct Endpoint[A] {
   priv stateless : Array[(Bytes, A)]
   priv busy : Array[Session[A]]
   priv reset_key : Bytes
+  /// The key a Retry's address validation token is tagged with, and how this endpoint names a
+  /// peer's address inside one.
+  priv token_key : Bytes
+  priv address : (A) -> Bytes
 }
 
 ///|
@@ -35,6 +39,8 @@ pub fn[A] Endpoint::new(cfg : Config) -> Endpoint[A] {
     stateless: [],
     busy: [],
     reset_key: Bytes::make(32, 0),
+    token_key: Bytes::make(16, 0),
+    address: _ => b"",
   }
 }
 
@@ -51,6 +57,7 @@ pub fn[A] Endpoint::server(
   tls : @tls.Server,
   rand~ : (Int32) -> Bytes,
   cid? : () -> Bytes,
+  address? : (A) -> Bytes,
 ) -> Endpoint[A] {
   {
     conns: Map([]),
@@ -65,6 +72,11 @@ pub fn[A] Endpoint::server(
     stateless: [],
     busy: [],
     reset_key: rand(32),
+    token_key: rand(16),
+    address: match address {
+      Some(f) => f
+      None => _ => b""
+    },
   }
 }
 
@@ -91,6 +103,8 @@ fn[A] Endpoint::open(
   size : Int32,
   now : Int64,
   wall : Int64?,
+  original~ : Bytes,
+  retry~ : Bytes?,
 ) -> Session[A]? {
   match self.tls {
     None => {
@@ -102,10 +116,21 @@ fn[A] Endpoint::open(
       // RFC 9000 §14.1: a client's first datagram is at least this big, which is what keeps a
       // spoofed Initial from buying more than it costs.
       guard size >= min_datagram else { return None }
-      let cid = self.fresh_cid()
+      // After a Retry the connection id is the one the Retry named: that is what the client
+      // addresses every packet to from then on (RFC 9000 §17.2.5.2).
+      let cid = match retry {
+        Some(named) => named
+        None => self.fresh_cid()
+      }
       let tls = @tls.Conn::quic_server(
         config,
-        params=declared(self.cfg, h.dcid, cid, reset_token(self.reset_key, cid)),
+        params=declared(
+          self.cfg,
+          original,
+          cid,
+          reset_token(self.reset_key, cid),
+          retry~,
+        ),
         rand=self.rand,
         now?=wall,
       )
@@ -115,14 +140,43 @@ fn[A] Endpoint::open(
         h.scid,
         self.cfg,
         now,
-        original=h.dcid,
+        original~,
+        initial=h.dcid,
         tls~,
       )
       self.conns[cid] = c
-      self.aliases[h.dcid] = cid
+      self.aliases[original] = cid
       Some(c)
     }
   }
+}
+
+///|
+/// Answer a client's first Initial with a Retry (RFC 9000 §8.1.2): a new source connection id
+/// for it to address from now on, and a token carrying its address, the id its Initial named,
+/// and the time. No state is kept for the connection until the second Initial arrives, which is
+/// the point of the exchange.
+fn[A] Endpoint::retry_client(
+  self : Endpoint[A],
+  h : @packet.Long,
+  from : A,
+  now : Int64,
+) -> Unit {
+  guard self.tls is Some(_) else { return }
+  let scid = self.fresh_cid()
+  let out : @packet.Long = {
+    packet_type: @packet.Kind::Retry,
+    type_specific: 0,
+    version: self.cfg.version,
+    dcid: h.scid,
+    scid,
+  }
+  let token = issue_token(self.token_key, (self.address)(from), h.dcid, now)
+  let body = Buffer()
+  body.write_bytes(@packet.encode_long(out))
+  body.write_bytes(token)
+  let tag = @crypto.retry_tag(body.to_bytes()[:], h.dcid[:])
+  self.stateless.push((@packet.retry(out, token~, tag~), from))
 }
 
 ///|
@@ -175,7 +229,7 @@ pub fn[A : Eq] Endpoint::recv(
 ) -> Unit raise {
   guard datagram.length() > 0 else { return }
   let conn = match @packet.read_long(datagram[:]) {
-    Some((h, _)) => {
+    Some((h, at)) => {
       if h.version != self.cfg.version {
         return self.negotiate(h, from, datagram.length())
       }
@@ -183,7 +237,34 @@ pub fn[A : Eq] Endpoint::recv(
         Some(c) => c
         None => {
           guard h.packet_type is @packet.Kind::Initial else { return }
-          guard self.open(h, from, datagram.length(), now, wall) is Some(c) else {
+          let token = match @packet.read_tail(h, datagram[:], at) {
+            Some(tail) => tail.token
+            None => b""
+          }
+          // A token this endpoint stamped says which connection id the first Initial named,
+          // and where the client was. Anything else — none, a forgery, an old one — is a client
+          // that has not proved its address, and gets a Retry when this server asks for one.
+          let original = match
+            read_token(self.token_key, token, now, (self.address)(from)) {
+            Some(t) => t.odcid
+            None =>
+              if self.cfg.retry {
+                return self.retry_client(h, from, now)
+              } else {
+                h.dcid
+              }
+          }
+          let retry = if self.cfg.retry { Some(h.dcid) } else { None }
+          guard self.open(
+              h,
+              from,
+              datagram.length(),
+              now,
+              wall,
+              original~,
+              retry~,
+            )
+            is Some(c) else {
             return
           }
           c

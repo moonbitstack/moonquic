@@ -62,6 +62,12 @@ pub(all) enum Frame {
   // `frame_type` is `Some` for a transport-error close (0x1c) and `None` for an
   // application-error close (0x1d), which omits the triggering frame type.
   ConnectionClose(error_code~ : UInt64, frame_type~ : UInt64?, reason~ : Bytes)
+  // Multipath (draft-ietf-quic-multipath §4): a connection's paths beyond the one it started
+  // on. Path 0 is the handshake's, and it is never given up.
+  PathAbandon(path_id~ : UInt64, error_code~ : UInt64)
+  PathStatus(path_id~ : UInt64, seq~ : UInt64, available~ : Bool)
+  MaxPathId(max~ : UInt64)
+  PathsBlocked(max~ : UInt64)
 }
 
 ///|
@@ -193,6 +199,26 @@ pub fn encode(f : Frame) -> Bytes {
       buf.write_bytes(data[:])
     }
     HandshakeDone => buf.write_bytes(@quic.encode(0x1eUL)[:])
+    PathAbandon(path_id~, error_code~) => {
+      buf.write_bytes(@quic.encode(0x15228c05UL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      buf.write_bytes(@quic.encode(error_code)[:])
+    }
+    PathStatus(path_id~, seq~, available~) => {
+      buf.write_bytes(
+        @quic.encode(if available { 0x15228c08UL } else { 0x15228c07UL })[:],
+      )
+      buf.write_bytes(@quic.encode(path_id)[:])
+      buf.write_bytes(@quic.encode(seq)[:])
+    }
+    MaxPathId(max~) => {
+      buf.write_bytes(@quic.encode(0x15228c0cUL)[:])
+      buf.write_bytes(@quic.encode(max)[:])
+    }
+    PathsBlocked(max~) => {
+      buf.write_bytes(@quic.encode(0x15228c0dUL)[:])
+      buf.write_bytes(@quic.encode(max)[:])
+    }
     ConnectionClose(error_code~, frame_type~, reason~) => {
       match frame_type {
         Some(ft) => {
@@ -458,6 +484,32 @@ fn decode_opt(b : BytesView) -> (Frame, Int32)? {
       let reason = b[off:off + n].to_owned()
       off = off + n
       Some((ConnectionClose(error_code~, frame_type=None, reason~), off))
+    }
+    // The multipath frames share a type range of their own; the draft assigns them from
+    // 0x15228c00 and they are eight-byte varints.
+    0x15228c05UL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
+      off = off + l1
+      guard @quic.decode(b[off:]) is Some((error_code, l2)) else { return None }
+      off = off + l2
+      Some((PathAbandon(path_id~, error_code~), off))
+    }
+    ty if ty == 0x15228c07UL || ty == 0x15228c08UL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
+      off = off + l1
+      guard @quic.decode(b[off:]) is Some((seq, l2)) else { return None }
+      off = off + l2
+      Some((PathStatus(path_id~, seq~, available=ty == 0x15228c08UL), off))
+    }
+    0x15228c0cUL => {
+      guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
+      Some((MaxPathId(max~), tlen + vl))
+    }
+    0x15228c0dUL => {
+      guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
+      Some((PathsBlocked(max~), tlen + vl))
     }
     0x30UL =>
       // No length: the datagram runs to the end of the packet (RFC 9221 §4).

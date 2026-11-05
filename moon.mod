@@ -33,6 +33,13 @@ keywords = [
   "client",
   "tls13",
   "retry",
+  "multipath",
+  "pacing",
+  "address-validation",
+  "version-negotiation",
+  "packet-recovery",
+  "probe-timeout",
+  "stream-multiplexing",
   "version-negotiation",
   "moonbit",
 ]
