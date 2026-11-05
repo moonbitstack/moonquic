@@ -230,6 +230,8 @@ The gate is `moon clean` → `moon fmt` → `moon check --target all --deny-warn
 | KeyUpdate in Handshake or 1-RTT | RFC 9001 §6 | `CRYPTO_ERROR` with `unexpected_message` |
 | EndOfEarlyData, or no ALPN overlap | RFC 8446 | `CRYPTO_ERROR` with the alert |
 
+`scripts/quic/check_interop.py --host <host> --port <port>` is the other half: an aioquic client completes a handshake, sends a stream and checks the echo, then repeats it through a proxy that drops one datagram in five, so recovery and pacing are exercised by a peer that is not this library's own. A server in Retry mode is covered by the same run.
+
 `scripts/quic/check_h3spec.sh <host> <port>` downloads that pinned release and runs the section against a server. It is a client, so it needs a server on the other end: this library has no socket, and the harness that binds one is the server repository's.
 
 Run against a server built on this library, all 43 examples pass. One of them, CRYPTO in 0-RTT, the tool skips of its own accord when the server issues no ticket; with tickets on it runs and is the one case that does not close as it expects, because the client resends the injected fragment at 1-RTT and is answered with `CRYPTO_ERROR` rather than `PROTOCOL_VIOLATION`.
