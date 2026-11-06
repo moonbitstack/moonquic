@@ -151,7 +151,11 @@ const WALL : Int64 = 1767225600L
 
 ///|
 /// A client that keeps its tickets in `store` and may offer 0-RTT.
-fn resuming_client(store : @tls.Sessions, wall : Int64) -> Client raise {
+fn resuming_client(
+  store : @tls.Sessions,
+  wall : Int64,
+  early_credit~ : UInt64 = 1_000_000UL,
+) -> Client raise {
   let params = Limits::new(
     idle_timeout=30000UL,
     data=10_000_000UL,
@@ -181,8 +185,8 @@ fn resuming_client(store : @tls.Sessions, wall : Int64) -> Client raise {
     // parameters arrive (RFC 9000 §7.4.1).
     cfg={
       ..Config::default(),
-      zero_rtt_data: 1_000_000UL,
-      zero_rtt_stream_data: 1_000_000UL,
+      zero_rtt_data: early_credit,
+      zero_rtt_stream_data: early_credit,
     },
   )
 }
@@ -274,6 +278,7 @@ test "0-RTT: a stream written before the handshake arrives, and the server said 
 ///|
 test "0-RTT: a client with no ticket keeps early data back for the handshake" {
   let client = resuming_client(@tls.Sessions::new(), WALL)
+  let server = resuming_server()
   client.write(0UL, b"early", fin=true)
   for packet in client.poll_out(1000L) {
     // Nothing may carry a STREAM frame but a 0-RTT or 1-RTT packet, and with neither key
@@ -281,8 +286,29 @@ test "0-RTT: a client with no ticket keeps early data back for the handshake" {
     assert_false(
       (packet[0].to_int() & 0x80) != 0 && (packet[0].to_int() & 0x30) == 0x10,
     )
+    server.recv(packet, from, 1000L)
   }
   assert_false(client.is_connected())
+  // Held back, not dropped: the handshake's limits let it out under the 1-RTT keys.
+  exchange(client, server, WALL, 1000L)
+  assert_true(client.is_connected())
+  assert_eq(only_conn(server).read(0UL), b"early")
+}
+
+///|
+test "0-RTT: a ticket with no early credit holds the data until the handshake's limits arrive" {
+  let store = @tls.Sessions::new()
+  exchange(resuming_client(store, WALL), resuming_server(), WALL, 1000L)
+  assert_true(store.length() > 0)
+  let wall = WALL + 5L
+  // RFC 9000 §7.4.1: the remembered limits govern 0-RTT, and here they allow nothing. Once the
+  // server's transport parameters arrive they govern every stream, the one already written too.
+  let client = resuming_client(store, wall, early_credit=0UL)
+  let server = resuming_server()
+  client.write(0UL, b"early", fin=true)
+  exchange(client, server, wall, 2000L)
+  assert_true(client.is_connected())
+  assert_eq(only_conn(server).read(0UL), b"early")
 }
 
 ///|

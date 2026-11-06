@@ -1017,7 +1017,6 @@ pub fn Scheduler::new(budget : Budget, frame~ : UInt64 = frame) -> Scheduler {
 }
 
 ///|
-/// Queue `n` more bytes to send on stream `id`.
 /// Apply the peer's transport parameters (RFC 9000 §18.2): the connection's limit, and what a new
 /// stream starts with by kind.
 pub fn Scheduler::on_params(
@@ -1029,6 +1028,11 @@ pub fn Scheduler::on_params(
   self.budget.on_max_data(data)
   self.budget.initial = bidi
   self.budget.uni = uni
+  // A stream written before the parameters arrived was opened under the limits remembered
+  // for 0-RTT; from here the peer's own govern it too (§7.4.1). Kept at zero, it never sends.
+  for id, credit in self.budget.streams {
+    credit.grant(if is_bidi(id) { bidi } else { uni })
+  }
 }
 
 ///|
