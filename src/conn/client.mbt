@@ -13,6 +13,21 @@
 // periods.
 
 ///|
+/// The largest path id the client's own transport parameters offer, or 0 when they offer none.
+/// A client declares `initial_max_path_id` in the block its caller passes, so the connection reads
+/// its own declaration back rather than being told twice.
+fn declared_paths(params : Bytes) -> UInt64 {
+  match decode_opt(params[:]) {
+    Some(block) =>
+      match find(block[:], InitialMaxPathId) {
+        Some(p) => p.as_int().unwrap_or(0UL)
+        None => 0UL
+      }
+    None => 0UL
+  }
+}
+
+///|
 /// The frames one CRYPTO stream run may be split into, and what a packet spends on everything
 /// but frames. An Initial packet's room is computed from the header that will actually carry it
 /// rather than assumed: a Retry token makes the header longer, and a fixed room would then build
@@ -117,6 +132,13 @@ pub struct Client {
   cfg : Config
   /// Probes the timers have decided to send, waiting for the next `poll_out`.
   priv probes : Array[Bytes]
+  /// This connection's paths beyond the one it started on (draft-ietf-quic-multipath §3). A
+  /// client holds no addresses — its caller owns the sockets — so a path is a number here, and
+  /// `recv_on` says which one a datagram came in on.
+  priv paths : Paths
+  priv lanes : Map[UInt64, Lane[Unit]]
+  /// Datagrams for the further paths, each tagged with the path it belongs on.
+  priv lane_out : Array[(UInt64, Bytes)]
 }
 
 ///|
@@ -141,6 +163,15 @@ pub fn Client::new(
     now=wall,
   )
   let (tx, rx) = @crypto.initial(dcid[:])
+  let core = Conn::new(false)
+  let sender = Sender::new(
+    cfg.zero_rtt_data,
+    cfg.zero_rtt_stream_data,
+    cfg.max_datagram,
+    cfg.max_ack_delay,
+    cfg.granularity,
+    cfg.max_frame,
+  )
   let client : Client = {
     tls,
     original_dcid: dcid,
@@ -158,21 +189,14 @@ pub fn Client::new(
     app_tx: None,
     app_rx: None,
     suite: @crypto.suite,
-    core: Conn::new(false),
+    core,
     initial_out: Outbox::new(),
     handshake_out: Outbox::new(),
     app_crypto_at: 0UL,
     initial_gone: false,
     handshake_gone: false,
     seen_server_cid: false,
-    sender: Sender::new(
-      cfg.zero_rtt_data,
-      cfg.zero_rtt_stream_data,
-      cfg.max_datagram,
-      cfg.max_ack_delay,
-      cfg.granularity,
-      cfg.max_frame,
-    ),
+    sender,
     streams: @stream.Streams::new(
       cfg.initial_max_data,
       cfg.initial_max_stream_data,
@@ -206,6 +230,20 @@ pub fn Client::new(
     at: 0L,
     cfg,
     probes: [],
+    paths: Paths::new(local_max=declared_paths(params)),
+    lanes: Map([
+      (
+        0UL,
+        Lane::new(
+          0UL,
+          (),
+          core.space(Application),
+          sender.recovery,
+          cfg.max_datagram,
+        ),
+      ),
+    ]),
+    lane_out: [],
   }
   client.absorb()
   client
@@ -316,6 +354,16 @@ fn Client::adopt_peer_params(self : Client) -> Unit {
   )
   self.sender.on_max_data(peer.data)
   self.sender.on_peer_datagram(peer.datagram_frame)
+  // draft-ietf-quic-multipath §2.1: the server's initial_max_path_id is a MAX_PATH_ID, and this
+  // client may open a path up to it.
+  match find(params[:], InitialMaxPathId) {
+    Some(p) =>
+      match p.as_int() {
+        Some(max) => self.paths.on_max_path_id(max)
+        None => ()
+      }
+    None => ()
+  }
   self.sender.ack_exponent = peer.ack_delay_exponent.to_int()
   if find(params[:], MaxIdleTimeout) is Some(_) {
     self.idle_timeout = idle_timeout(
@@ -577,6 +625,20 @@ fn Client::send_level(self : Client) -> Level {
 /// contiguous. A server's first datagram may coalesce packets; the keys one brings are
 /// installed before the next is read.
 pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise {
+  self.recv_on(0UL, datagram, now)
+}
+
+///|
+/// Take a datagram that arrived on path `path`. A client has no address of its own — its caller
+/// owns the sockets — so the path a datagram belongs to is something only the caller knows, and
+/// it says so here (draft-ietf-quic-multipath §2.3). The path picks the packet-number space and
+/// the nonce the packet was sealed with.
+pub fn Client::recv_on(
+  self : Client,
+  path : UInt64,
+  datagram : Bytes,
+  now : Int64,
+) -> Unit raise {
   self.at = now
   if self.phase == Draining {
     return
@@ -588,11 +650,12 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
     if (view[0].to_int() & 0x80) == 0 {
       // 1-RTT: every Application packet runs to the end of the datagram.
       guard self.app_rx is Some(keys) else { break }
-      let space = self.core.space(Level::Application)
+      let space = self.core.space_on(path, Level::Application)
       let opened = self.open_app(
         view.to_owned(),
         keys,
         space.largest_received(),
+        path~,
       ) catch {
         _ => return self.close(frame_encoding_error, b"", now)
       }
@@ -612,17 +675,13 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
         frames_fault(
           Level::Application,
           frames,
-          self.standing(Level::Application),
+          self.standing(Level::Application, path~),
         ) {
         Some(fault) => return self.close(fault.code, fault.reason, now)
         None => ()
       }
-      self.core.on_packet_received(
-        Level::Application,
-        pn,
-        @packet.payload_elicits_ack(frames),
-      )
-      self.on_app_frames(frames, now)
+      space.on_packet_received(pn, @packet.payload_elicits_ack(frames))
+      self.on_app_frames(frames, now, path~)
       break
     }
     guard @packet.read_long(view) is Some((h, _)) else { break }
@@ -658,12 +717,16 @@ pub fn Client::recv(self : Client, datagram : Bytes, now : Int64) -> Unit raise 
 
 ///|
 /// What a frame check on this client runs against.
-fn Client::standing(self : Client, level : Level) -> Standing {
+fn Client::standing(
+  self : Client,
+  level : Level,
+  path~ : UInt64 = 0UL,
+) -> Standing {
   {
     server: false,
     streams: self.streams,
     sched: self.sender.sched,
-    sent: self.core.space(level).issued(),
+    sent: self.core.space_on(path, level).issued(),
   }
 }
 
@@ -798,12 +861,13 @@ fn Client::open_app(
   packet : Bytes,
   keys : @crypto.Keys,
   largest : Int64,
+  path~ : UInt64 = 0UL,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
   let n = self.scid.length()
-  let opened = recv_short(packet, n, keys, largest~)
+  let opened = recv_short(packet, n, keys, largest~, path~)
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
   let (secret, next) = roll(self.app_rx_secret, keys, self.suite)
-  let moved = recv_short(packet, n, next, largest~)
+  let moved = recv_short(packet, n, next, largest~, path~)
   guard moved is Some(_) else { return None }
   self.app_rx = Some(next)
   self.app_rx_secret = secret
@@ -947,6 +1011,7 @@ fn Client::on_app_frames(
   self : Client,
   frames : Array[@frame.Frame],
   now : Int64,
+  path~ : UInt64 = 0UL,
 ) -> Unit raise {
   for frame in frames {
     match frame {
@@ -957,6 +1022,10 @@ fn Client::on_app_frames(
         )
         self.sender.on_ack(frame, now)
       }
+      // §4.1: an acknowledgement for another path settles that path's numbers, and leaves this
+      // one's congestion state alone.
+      PathAck(path_id~, ..) | PathAckEcn(path_id~, ..) =>
+        self.on_path_ack(frame, path_id, now)
       Stream(id~, offset~, fin~, data~) => {
         self.streams.accept(id, offset, data, fin~)
         let event = Readable(id)
@@ -994,7 +1063,18 @@ fn Client::on_app_frames(
       ResetStream(id~, error_code~, ..) =>
         self.events.push(Reset(id, error_code))
       StopSending(id~, error_code~) => self.events.push(Stopped(id, error_code))
-      PathChallenge(data) => self.sender.queue_control(PathResponse(data))
+      // A challenge is answered on the path it came from, and a path is proven once its own
+      // challenge comes back unchanged (draft-ietf-quic-multipath §3.1).
+      PathChallenge(data) =>
+        if path == 0UL {
+          self.sender.queue_control(PathResponse(data))
+        } else {
+          ignore(self.send_on(path, [PathResponse(data)], now))
+        }
+      PathResponse(data) =>
+        if path != 0UL {
+          ignore(self.paths.prove(path, data))
+        }
       @frame.Datagram(data~) => {
         self.datagrams.push(data)
         if !self.events.contains(Event::Datagram) {
@@ -1008,6 +1088,13 @@ fn Client::on_app_frames(
         return
       }
       _ => ()
+    }
+  }
+  // A path of its own is acknowledged on itself, in a packet that names it (§4.1).
+  if path != 0UL && self.phase == Active {
+    match self.ack_on(path, 0UL) {
+      Some(ack) => ignore(self.send_on(path, [ack], now))
+      None => ()
     }
   }
 }
@@ -1103,6 +1190,7 @@ pub fn Client::tick(self : Client, now : Int64) -> Unit {
       let pto = self.sender.recovery.pto()
       self.initial_out.tick(now, pto)
       self.handshake_out.tick(now, pto)
+      self.tick_paths(now)
       let _ = self.sender.on_pto_timeout(now)
       if !self.tls.is_connected() &&
         now - self.last_tx >= pto &&
@@ -1178,4 +1266,194 @@ pub fn Client::close(
   self.close_level = level
   self.close_at = now + self.cfg.close_period
   self.events.push(Closed(error_code))
+}
+
+///|
+/// The sending state of path `path` on this client. Path 0's lane shares the send loop's recovery
+/// state, so a connection that never opens a second path behaves as it did before.
+fn Client::lane(self : Client, path : UInt64) -> Lane[Unit] {
+  match self.lanes.get(path) {
+    Some(lane) => lane
+    None => {
+      let lane = Lane::new(
+        path,
+        (),
+        self.core.space_on(path, Level::Application),
+        @recovery.State::new(
+          policy=@recovery.Policy::new(
+            datagram=self.cfg.max_datagram,
+            ack_delay=self.cfg.max_ack_delay,
+            granularity=self.cfg.granularity,
+          ),
+        ),
+        self.cfg.max_datagram,
+      )
+      self.lanes[path] = lane
+      lane
+    }
+  }
+}
+
+///|
+/// The sending state of path `path`, or `None` before anything has been sent on it.
+pub fn Client::path_lane(self : Client, path : UInt64) -> Lane[Unit]? {
+  self.lanes.get(path)
+}
+
+///|
+/// This connection's paths, path 0 being the one the handshake ran on.
+pub fn Client::paths(self : Client) -> Paths {
+  self.paths
+}
+
+///|
+/// Start a second path from this client (draft-ietf-quic-multipath §3.1): the caller names the
+/// peer's connection id for it, the id this end will answer to on it, and eight bytes for the
+/// PATH_CHALLENGE. The datagrams that follow are handed back by `poll_paths`, tagged with the
+/// path they belong on, because which socket each goes out of is the caller's to know.
+pub fn Client::add_path(
+  self : Client,
+  path : UInt64,
+  dcid : Bytes,
+  lcid : Bytes,
+  now : Int64,
+  nonce~ : Bytes,
+  token~ : Bytes,
+) -> Bool {
+  guard self.phase == Active && self.tls.is_connected() else { return false }
+  guard self.paths.openable(path) else { return false }
+  guard dcid.length() > 0 && lcid.length() > 0 && nonce.length() == 8 else {
+    return false
+  }
+  self.paths.bind(path, dcid)
+  ignore(self.paths.bind_local(path, lcid))
+  self.sender.queue_control(
+    PathNewConnectionId(
+      path_id=path,
+      seq=0UL,
+      retire_prior_to=0UL,
+      conn_id=lcid,
+      reset_token=token,
+    ),
+  )
+  self.send_on(path, [PathChallenge(nonce)], now)
+}
+
+///|
+/// Put `frames` in one 1-RTT packet on `path`. Path 0 goes out the connection's own way and is
+/// picked up by `poll_out`; any other path is numbered, paced and recovered by its own lane.
+pub fn Client::send_on(
+  self : Client,
+  path : UInt64,
+  frames : Array[@frame.Frame],
+  now : Int64,
+) -> Bool {
+  guard self.app_tx is Some(keys) else { return false }
+  guard frames.length() > 0 else { return false }
+  if path == 0UL {
+    for frame in frames {
+      self.sender.queue_control(frame)
+    }
+    return true
+  }
+  let lane = self.lane(path)
+  let dcid = self.paths.peer_cid(path)
+  guard dcid.length() > 0 else { return false }
+  let payload = @packet.payload(frames)
+  let size = (payload.length() + keys.suite.tag + 21 + self.scid.length()).to_int64()
+  guard lane.send(now, frames, size) is Some(pn) else { return false }
+  let datagram = send_short(
+    dcid,
+    pn,
+    4,
+    frames,
+    keys,
+    key_phase=self.key_phase,
+    path~,
+  )
+  self.lane_out.push((path, datagram))
+  true
+}
+
+///|
+/// The datagrams the further paths have ready, each with the path it belongs on: what a lost
+/// packet carried, then a probe a path owes. A client's caller sends each on the socket that path
+/// runs over.
+pub fn Client::poll_paths(self : Client, now : Int64) -> Array[(UInt64, Bytes)] {
+  let out : Array[(UInt64, Bytes)] = []
+  if self.phase != Active || !self.tls.is_connected() {
+    return out
+  }
+  for path in self.lanes.keys().collect() {
+    guard path != 0UL else { continue }
+    guard self.lanes.get(path) is Some(lane) else { continue }
+    while lane.due() is Some(frames) {
+      guard self.send_on(path, frames, now) else { break }
+    }
+  }
+  out.append(self.lane_out)
+  self.lane_out.clear()
+  if out.length() > 0 {
+    self.last_tx = now
+  }
+  out
+}
+
+///|
+/// The probe timeouts of the further paths (RFC 9002 §6.2.4): a path whose timeout has come puts
+/// its two oldest packets back in line for the next `poll_paths`.
+fn Client::tick_paths(self : Client, now : Int64) -> Unit {
+  for path in self.lanes.keys().collect() {
+    guard path != 0UL else { continue }
+    guard self.lanes.get(path) is Some(lane) else { continue }
+    ignore(lane.on_pto(now))
+  }
+}
+
+///|
+/// Act on an acknowledgement for path `path` (draft-ietf-quic-multipath §4.1).
+fn Client::on_path_ack(
+  self : Client,
+  frame : @frame.Frame,
+  path : UInt64,
+  now : Int64,
+) -> Unit {
+  let lane = self.lane(path)
+  lane.on_ack(frame, now, self.sender.ack_exponent) catch {
+    _ => return self.close(frame_encoding_error, b"", now)
+  }
+}
+
+///|
+/// The acknowledgement owed on `path`: an ACK on the path the handshake ran on, a PATH_ACK on any
+/// other, naming the path whose numbers it settles.
+fn Client::ack_on(
+  self : Client,
+  path : UInt64,
+  delay : UInt64,
+) -> @frame.Frame? {
+  let space = self.core.space_on(path, Level::Application)
+  guard space.ack_pending() else { return None }
+  let ack = space.build_ack(delay)
+  if path == 0UL {
+    return ack
+  }
+  match ack {
+    Some(Ack(largest~, delay~, first_range~, ranges~)) =>
+      Some(PathAck(path_id=path, largest~, delay~, first_range~, ranges~))
+    Some(AckEcn(largest~, delay~, first_range~, ranges~, ect0~, ect1~, ce~)) =>
+      Some(
+        PathAckEcn(
+          path_id=path,
+          largest~,
+          delay~,
+          first_range~,
+          ranges~,
+          ect0~,
+          ect1~,
+          ce~,
+        ),
+      )
+    _ => None
+  }
 }

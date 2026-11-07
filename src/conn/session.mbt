@@ -222,6 +222,12 @@ pub struct Session[A] {
   priv probes : Array[(Bytes, A)]
   priv ids : Ids
   priv paths : Paths
+  /// Each path's packet numbers and congestion state, path 0 among them
+  /// (draft-ietf-quic-multipath §2.3). Path 0 shares the send loop's recovery state, so a
+  /// connection with one path behaves exactly as it did before there were lanes.
+  priv lanes : Map[UInt64, Lane[A]]
+  /// Datagrams for paths other than the one the peer is on, each with the address it goes to.
+  priv lane_out : Array[(Bytes, A)]
 }
 
 ///|
@@ -247,26 +253,28 @@ fn[A] Session::new(
   initial? : Bytes,
   tls? : @tls.Conn,
 ) -> Session[A] {
+  // The Initial keys come from the Destination Connection ID of the packet that arrived, which
+  // after a Retry is the id the Retry named rather than the first one (RFC 9001 §5.2).
+  let core = Server::new(
+    match initial {
+      Some(id) => id
+      None => original
+    },
+  )
+  let sender = Sender::new(
+    cfg.initial_max_data,
+    cfg.initial_max_stream_data,
+    cfg.max_datagram,
+    cfg.max_ack_delay,
+    cfg.granularity,
+    cfg.max_frame,
+  )
   {
     peer,
     cid,
     peer_cid,
-    // The Initial keys come from the Destination Connection ID of the packet that arrived,
-    // which after a Retry is the id the Retry named rather than the first one (RFC 9001 §5.2).
-    core: Server::new(
-      match initial {
-        Some(id) => id
-        None => original
-      },
-    ),
-    sender: Sender::new(
-      cfg.initial_max_data,
-      cfg.initial_max_stream_data,
-      cfg.max_datagram,
-      cfg.max_ack_delay,
-      cfg.granularity,
-      cfg.max_frame,
-    ),
+    core,
+    sender,
     cfg,
     out: [],
     received: [],
@@ -311,6 +319,19 @@ fn[A] Session::new(
     probes: [],
     ids: Ids::new(),
     paths: Paths::new(local_max=cfg.max_path_id),
+    lanes: Map([
+      (
+        0UL,
+        Lane::new(
+          0UL,
+          peer,
+          core.conn.space(Application),
+          sender.recovery,
+          cfg.max_datagram,
+        ),
+      ),
+    ]),
+    lane_out: [],
     zero_rtt_rx: None,
   }
 }
@@ -461,6 +482,16 @@ pub fn[A] Session::apply_peer_params(
   // RFC 9221 §3: the peer's max_datagram_frame_size is how large a DATAGRAM frame it will
   // accept; zero means it accepts none.
   self.sender.on_peer_datagram(peer.datagram_frame)
+  // draft-ietf-quic-multipath §2.1: initial_max_path_id is a MAX_PATH_ID that arrives with the
+  // handshake, and its absence means the peer will not maintain a second path at all.
+  match find(params[:], InitialMaxPathId) {
+    Some(p) =>
+      match p.as_int() {
+        Some(max) => self.paths.on_max_path_id(max)
+        None => ()
+      }
+    None => ()
+  }
 }
 
 ///|
@@ -691,12 +722,16 @@ fn[A : Eq] Session::on_datagram(
 
 ///|
 /// What a frame check on this connection runs against.
-fn[A] Session::standing(self : Session[A], level : Level) -> Standing {
+fn[A] Session::standing(
+  self : Session[A],
+  level : Level,
+  path~ : UInt64 = 0UL,
+) -> Standing {
   {
     server: true,
     streams: self.streams,
     sched: self.sender.sched,
-    sent: self.core.conn.space(level).issued(),
+    sent: self.core.conn.space_on(path, level).issued(),
   }
 }
 
@@ -708,8 +743,9 @@ fn[A] Session::admit(
   level : Level,
   frames : Array[@frame.Frame],
   now : Int64,
+  path~ : UInt64 = 0UL,
 ) -> Bool {
-  match frames_fault(level, frames, self.standing(level)) {
+  match frames_fault(level, frames, self.standing(level, path~)) {
     Some(fault) => {
       self.close(fault.code, fault.reason, now)
       false
@@ -857,10 +893,14 @@ fn[A : Eq] Session::on_app(
   if self.tls is Some(tls) && !tls.is_connected() {
     return
   }
-  let space = self.core.conn.space(Level::Application)
-  let largest = space.largest_received()
+  // Which path a packet belongs to is the connection id it carries, not the address it came from
+  // (draft-ietf-quic-multipath §1): the id is bound to one path, and that path owns the packet
+  // numbers and the nonce.
   let addressed = datagram[1:1 + self.cid.length()].to_owned()
-  let opened = self.open_app(datagram, keys, largest) catch {
+  let path = self.paths.path_of(addressed)
+  let space = self.core.conn.space_on(path, Level::Application)
+  let largest = space.largest_received()
+  let opened = self.open_app(datagram, keys, largest, path~) catch {
     _ => return self.close(frame_encoding_error, b"", now)
   }
   guard opened is Some((frames, pn)) else { return }
@@ -870,13 +910,9 @@ fn[A : Eq] Session::on_app(
   if reserved_set(datagram, keys, 1 + self.cid.length(), short=true) {
     return self.close(protocol_violation, b"reserved bits set", now)
   }
-  guard self.admit(Level::Application, frames, now) else { return }
+  guard self.admit(Level::Application, frames, now, path~) else { return }
   self.last_rx = now
-  self.core.conn.on_packet_received(
-    Level::Application,
-    pn,
-    @packet.payload_elicits_ack(frames),
-  )
+  space.on_packet_received(pn, @packet.payload_elicits_ack(frames))
   let frames = if from == self.peer {
     frames
   } else {
@@ -888,7 +924,7 @@ fn[A : Eq] Session::on_app(
   if self.tls is Some(tls) {
     self.feed_crypto(tls, Level::Application, frames, now)
   }
-  self.on_frames(Level::Application, frames, now)
+  self.on_frames(Level::Application, frames, now, path~)
 }
 
 ///|
@@ -902,6 +938,7 @@ fn[A] Session::on_frames(
   level : Level,
   frames : Array[@frame.Frame],
   now : Int64,
+  path~ : UInt64 = 0UL,
 ) -> Unit raise {
   let live = self.tls is Some(_)
   for frame in frames {
@@ -916,6 +953,10 @@ fn[A] Session::on_frames(
           _ => self.outbox(level).on_ack(frame)
         }
       }
+      // §4.1: a PATH_ACK settles numbers in the space of the path it names, and says nothing
+      // about any other path's congestion state.
+      PathAck(path_id~, ..) | PathAckEcn(path_id~, ..) =>
+        self.on_path_ack(frame, path_id, now)
       ConnectionClose(error_code~, ..) => {
         self.phase = Draining
         self.close_at = now + self.cfg.close_period
@@ -955,15 +996,36 @@ fn[A] Session::on_frames(
         ignore(self.paths.on_status(path_id, seq, available))
       }
       MaxPathId(max~) => self.paths.on_max_path_id(max)
+      PathNewConnectionId(path_id~, seq~, conn_id~, ..) => {
+        if path_id > self.paths.local_max() {
+          return self.close(protocol_violation, b"a path never agreed", now)
+        }
+        ignore(self.paths.on_peer_cid(path_id, seq, conn_id))
+      }
+      PathRetireConnectionId(path_id~, seq~) =>
+        ignore(self.paths.retire_peer_cid(path_id, seq))
+      // §4.7: a report that the peer has no more connection ids for a path, which this end acts
+      // on by issuing one; nothing is owed back.
+      PathCidsBlocked(..) => ()
       NewConnectionId(seq~, retire_prior_to~, conn_id~, reset_token~) if live =>
         self.on_new_id(seq, retire_prior_to, conn_id, reset_token, now)
       RetireConnectionId(seq) if live => self.on_retire_id(seq, now)
+      // A challenge is answered on the path it came from, and only path 0's answer is the
+      // connection's own (RFC 9000 §8.2, draft-ietf-quic-multipath §3.1).
       PathChallenge(data) if live =>
-        self.probe([PathResponse(data)], self.peer, self.budget())
+        if path == 0UL {
+          self.probe([PathResponse(data)], self.peer, self.budget())
+        } else {
+          ignore(self.send_on(path, [PathResponse(data)], now))
+        }
       PathResponse(data) if live =>
-        // The path is proven once the challenge comes back unchanged (RFC 9000 §8.2).
-        if self.path.check(data) {
-          self.on_path_proven()
+        // A path is proven once the challenge it carried comes back unchanged.
+        if path == 0UL {
+          if self.path.check(data) {
+            self.on_path_proven()
+          }
+        } else {
+          ignore(self.paths.prove(path, data))
         }
       _ => ()
     }
@@ -980,6 +1042,13 @@ fn[A] Session::on_frames(
   if !live && self.core.conn.space(level).ack_pending() {
     match self.core.conn.build_ack(level, 0UL) {
       Some(ack) => self.send(level, [ack])
+      None => ()
+    }
+  } else if live && level == Level::Application && path != 0UL {
+    // A path of its own is acknowledged on itself, in a packet that names it (§4.1). Without
+    // this the peer's numbers on that path would never be settled.
+    match self.ack_on(path, 0UL) {
+      Some(ack) => ignore(self.send_on(path, [ack], now))
       None => ()
     }
   }

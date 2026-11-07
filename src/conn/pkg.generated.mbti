@@ -47,7 +47,7 @@ pub fn read_token(Bytes, Bytes, Int64, Bytes) -> Token?
 
 pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
-pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
+pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64, path? : UInt64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
 pub fn reset_token(Bytes, Bytes) -> Bytes
 
@@ -55,7 +55,7 @@ pub fn seal_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Bytes, @crypt
 
 pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, token? : Bytes) -> Bytes
 
-pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool) -> Bytes
+pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, path? : UInt64) -> Bytes
 
 pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys) -> Bytes
 
@@ -126,6 +126,7 @@ pub struct Client {
   cfg : Config
   // private fields
 }
+pub fn Client::add_path(Self, UInt64, Bytes, Bytes, Int64, nonce~ : Bytes, token~ : Bytes) -> Bool
 pub fn Client::alpn(Self) -> String?
 pub fn Client::buffered(Self, UInt64) -> UInt64
 pub fn Client::close(Self, UInt64, Bytes, Int64, application? : Bool) -> Unit
@@ -136,12 +137,17 @@ pub fn Client::is_connected(Self) -> Bool
 pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config) -> Self raise
 pub fn Client::next_cid(Self) -> Bool
 pub fn Client::open_uni(Self) -> UInt64
+pub fn Client::path_lane(Self, UInt64) -> Lane[Unit]?
+pub fn Client::paths(Self) -> Paths
 pub fn Client::phase(Self) -> Phase
 pub fn Client::poll_out(Self, Int64) -> Array[Bytes]
+pub fn Client::poll_paths(Self, Int64) -> Array[(UInt64, Bytes)]
 pub fn Client::probe(Self, Int64) -> Array[Bytes]
 pub fn Client::read(Self, UInt64) -> Bytes
 pub fn Client::recv(Self, Bytes, Int64) -> Unit raise
+pub fn Client::recv_on(Self, UInt64, Bytes, Int64) -> Unit raise
 pub fn Client::send_datagram(Self, Bytes) -> Bool
+pub fn Client::send_on(Self, UInt64, Array[@frame.Frame], Int64) -> Bool
 pub fn Client::server_cid(Self) -> Bytes
 pub fn Client::suite_code(Self) -> Int32
 pub fn Client::take_datagrams(Self) -> Array[Bytes]
@@ -193,6 +199,7 @@ pub struct Conn {
   initial_space : @packet.Space
   handshake_space : @packet.Space
   application_space : @packet.Space
+  path_spaces : Map[UInt64, @packet.Space]
   initial_crypto : @stream.Assembler
   handshake_crypto : @stream.Assembler
   application_crypto : @stream.Assembler
@@ -205,13 +212,16 @@ pub fn Conn::next_packet_number(Self, Level) -> Int64
 pub fn Conn::on_ack_received(Self, Level, Int64) -> Unit
 pub fn Conn::on_crypto_frame(Self, Level, UInt64, Bytes) -> Bytes raise @stream.Refused
 pub fn Conn::on_packet_received(Self, Level, Int64, Bool) -> Unit
+pub fn Conn::paths(Self) -> Int32
 pub fn Conn::space(Self, Level) -> @packet.Space
+pub fn Conn::space_on(Self, UInt64, Level) -> @packet.Space
 
 pub struct Endpoint[A] {
   conns : Map[Bytes, Session[A]]
   cfg : Config
   // private fields
 }
+pub fn[A] Endpoint::add_path(Self[A], Bytes, UInt64, A, Bytes, Int64, nonce~ : Bytes) -> Bool
 pub fn[A] Endpoint::close(Self[A], Bytes, UInt64, Bytes, Int64) -> Unit
 pub fn[A] Endpoint::conn(Self[A], Bytes) -> Session[A]?
 pub fn[A] Endpoint::conn_ids(Self[A]) -> Array[Bytes]
@@ -265,6 +275,29 @@ pub fn Kind::not_equal(Self, Self) -> Bool
 pub fn Kind::of(UInt64) -> Self
 pub fn Kind::server_only(Self) -> Bool
 pub fn Kind::to_repr(Self) -> @debug.Repr
+
+pub struct Lane[A] {
+  id : UInt64
+  mut peer : A
+  space : @packet.Space
+  recovery : @recovery.State
+  pacer : @recovery.Pacer
+  flight : Map[Int64, Array[@frame.Frame]]
+  lost : Array[Array[@frame.Frame]]
+  mut probes : Int32
+}
+pub fn[A] Lane::can_send(Self[A], Int64) -> Bool
+pub fn[A] Lane::due(Self[A]) -> Array[@frame.Frame]?
+pub fn[A] Lane::id(Self[A]) -> UInt64
+pub fn[A] Lane::in_flight(Self[A]) -> Int32
+pub fn[A] Lane::new(UInt64, A, @packet.Space, @recovery.State, Int64) -> Self[A]
+pub fn[A] Lane::on_ack(Self[A], @frame.Frame, Int64, Int32) -> Unit raise
+pub fn[A] Lane::on_pto(Self[A], Int64) -> Bool
+pub fn[A] Lane::peer(Self[A]) -> A
+pub fn[A] Lane::rebind(Self[A], A) -> Unit
+pub fn[A] Lane::recovery(Self[A]) -> @recovery.State
+pub fn[A] Lane::send(Self[A], Int64, Array[@frame.Frame], Int64) -> Int64?
+pub fn[A] Lane::space(Self[A]) -> @packet.Space
 
 #derive(Eq, @debug.Debug)
 pub(all) enum Level {
@@ -325,8 +358,11 @@ pub fn Path::validated(Self) -> Bool
 pub(all) struct PathState {
   id : UInt64
   mut dcid : Bytes
+  mut lcid : Bytes
   mut validated : Bool
+  mut challenge : Bytes
   mut available : Bool
+  mut peer_seq : UInt64
   mut heard : UInt64
   mut sent : UInt64
   mut abandoned : Bool
@@ -340,17 +376,27 @@ pub struct Paths {
 pub fn Paths::abandon(Self, UInt64) -> Bool
 pub fn Paths::allowed(Self, UInt64) -> Bool
 pub fn Paths::bind(Self, UInt64, Bytes) -> Unit
+pub fn Paths::bind_local(Self, UInt64, Bytes) -> Bool
 pub fn Paths::count(Self) -> Int32
 pub fn Paths::free(Self) -> UInt64?
 pub fn Paths::get(Self, UInt64) -> PathState?
 pub fn Paths::ids(Self) -> Array[UInt64]
+pub fn Paths::local_cid(Self, UInt64) -> Bytes
 pub fn Paths::local_max(Self) -> UInt64
 pub fn Paths::new(local_max? : UInt64) -> Self
 pub fn Paths::next_status(Self, UInt64) -> UInt64?
 pub fn Paths::on_max_path_id(Self, UInt64) -> Unit
+pub fn Paths::on_peer_cid(Self, UInt64, UInt64, Bytes) -> Bool
 pub fn Paths::on_status(Self, UInt64, UInt64, Bool) -> Bool
 pub fn Paths::on_validated(Self, UInt64) -> Unit
+pub fn Paths::open(Self) -> Array[UInt64]
+pub fn Paths::openable(Self, UInt64) -> Bool
+pub fn Paths::path_of(Self, Bytes) -> UInt64
+pub fn Paths::peer_cid(Self, UInt64) -> Bytes
 pub fn Paths::peer_max(Self) -> UInt64
+pub fn Paths::prove(Self, UInt64, Bytes) -> Bool
+pub fn Paths::retire_peer_cid(Self, UInt64, UInt64) -> Bool
+pub fn Paths::start(Self, UInt64, Bytes) -> Bytes
 pub fn Paths::validated(Self, UInt64) -> Bool
 
 #derive(Eq, @debug.Debug)
@@ -442,6 +488,7 @@ pub struct Session[A] {
   mut zero_rtt_rx : @crypto.Keys?
   // private fields
 }
+pub fn[A] Session::add_path(Self[A], UInt64, A, Bytes, Bytes, Int64, nonce~ : Bytes, token~ : Bytes) -> Bool
 pub fn[A] Session::alpn(Self[A]) -> String?
 pub fn[A] Session::apply_peer_params(Self[A], Array[Param]) -> Unit
 pub fn[A] Session::buffered(Self[A], UInt64) -> UInt64
@@ -457,11 +504,13 @@ pub fn[A] Session::install_zero_rtt(Self[A], @crypto.Keys) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
 pub fn[A] Session::open_uni(Self[A]) -> UInt64
 pub fn[A] Session::packets_received(Self[A]) -> Int32
+pub fn[A] Session::path_lane(Self[A], UInt64) -> Lane[A]?
 pub fn[A] Session::path_validated(Self[A]) -> Bool
 pub fn[A] Session::paths(Self[A]) -> Paths
 pub fn[A] Session::peer(Self[A]) -> A
 pub fn[A] Session::pending(Self[A]) -> Int32
 pub fn[A] Session::phase(Self[A]) -> Phase
+pub fn[A] Session::poll_lane(Self[A], Int64) -> (Bytes, A)?
 pub fn[A] Session::queue_stream(Self[A], UInt64, Bytes) -> Unit
 pub fn[A] Session::read(Self[A], UInt64) -> Bytes
 pub fn[A] Session::release(Self[A], UInt64) -> Unit
@@ -470,6 +519,7 @@ pub fn[A] Session::rx_bytes(Self[A]) -> Int64
 pub fn[A] Session::send(Self[A], Level, Array[@frame.Frame]) -> Unit
 pub fn[A] Session::send_datagram(Self[A], Bytes) -> Bool
 pub fn[A] Session::send_level(Self[A]) -> Level
+pub fn[A] Session::send_on(Self[A], UInt64, Array[@frame.Frame], Int64) -> Bool
 pub fn[A] Session::server_name(Self[A]) -> String?
 pub fn[A] Session::stop(Self[A], UInt64, UInt64) -> Unit
 pub fn[A] Session::suite_code(Self[A]) -> Int32

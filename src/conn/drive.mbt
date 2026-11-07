@@ -408,12 +408,13 @@ fn[A] Session::open_app(
   packet : Bytes,
   keys : @crypto.Keys,
   largest : Int64,
+  path~ : UInt64 = 0UL,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
   let n = self.cid.length()
-  let opened = recv_short(packet, n, keys, largest~)
+  let opened = recv_short(packet, n, keys, largest~, path~)
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
   let (rx_secret, next) = roll(self.app_rx_secret, keys, self.suite)
-  let moved = recv_short(packet, n, next, largest~)
+  let moved = recv_short(packet, n, next, largest~, path~)
   guard moved is Some(_) && self.app_tx is Some(tx) else { return None }
   let (tx_secret, written) = roll(self.app_tx_secret, tx, self.suite)
   self.app_rx = Some(next)

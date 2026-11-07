@@ -384,12 +384,51 @@ pub fn[A] Endpoint::poll_out(
     if conn.probes.length() > 0 {
       return Some(conn.probes.remove(0))
     }
+    // A further path's datagram carries its own address: the connection id a path is bound to
+    // decides which path a packet belongs to, not the socket it arrives on.
+    match conn.poll_lane(now) {
+      Some(datagram) => return Some(datagram)
+      None => ()
+    }
     match conn.next_datagram(now) {
       Some(datagram) => return Some((datagram, conn.peer))
       None => ()
     }
   }
   None
+}
+
+///|
+/// Open a second path on connection `cid` (draft-ietf-quic-multipath §3.1). This endpoint makes the
+/// connection id the path answers to, so a packet for it routes here like any other id the
+/// connection holds, and the peer is told which id to use on that path.
+pub fn[A] Endpoint::add_path(
+  self : Endpoint[A],
+  cid : Bytes,
+  path : UInt64,
+  peer : A,
+  dcid : Bytes,
+  now : Int64,
+  nonce~ : Bytes,
+) -> Bool {
+  let conn = match self.find(cid) {
+    Some(conn) => conn
+    None => return false
+  }
+  let lcid = self.fresh_cid()
+  guard conn.add_path(
+    path,
+    peer,
+    dcid,
+    lcid,
+    now,
+    nonce~,
+    token=reset_token(self.reset_key, lcid),
+  ) else {
+    return false
+  }
+  self.aliases[lcid] = conn.cid
+  true
 }
 
 ///|
@@ -428,6 +467,7 @@ pub fn[A] Endpoint::tick(self : Endpoint[A], now : Int64) -> Unit {
           expired.push(cid)
         } else {
           let _ = conn.sender.on_pto_timeout(now)
+          conn.tick_lanes(now)
           conn.tick_path(now)
           let pto = conn.sender.recovery.pto()
           conn.initial_out.tick(now, pto)

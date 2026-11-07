@@ -28,6 +28,10 @@ pub struct Conn {
   initial_space : @packet.Space
   handshake_space : @packet.Space
   application_space : @packet.Space
+  /// Further paths' packet-number spaces (draft-ietf-quic-multipath §2.3). Each path id after
+  /// 0 numbers its packets from zero and acknowledges them separately; path 0 is
+  /// `application_space`, so a connection with one path allocates nothing extra.
+  path_spaces : Map[UInt64, @packet.Space]
   initial_crypto : @stream.Assembler
   handshake_crypto : @stream.Assembler
   application_crypto : @stream.Assembler
@@ -41,6 +45,7 @@ pub fn Conn::new(is_server : Bool) -> Conn {
     initial_space: @packet.Space::new(),
     handshake_space: @packet.Space::new(),
     application_space: @packet.Space::new(),
+    path_spaces: Map([]),
     initial_crypto: @stream.Assembler::new(),
     handshake_crypto: @stream.Assembler::new(),
     application_crypto: @stream.Assembler::new(),
@@ -61,6 +66,34 @@ pub fn Conn::space(self : Conn, level : Level) -> @packet.Space {
     Handshake => self.handshake_space
     Application => self.application_space
   }
+}
+
+///|
+/// The packet-number space for `level` on path `path`. Only Application has one per path: the
+/// handshake runs on path 0, and the draft gives 0-RTT and 1-RTT a space for each path id
+/// (draft-ietf-quic-multipath §2.3). Path 0 is the connection's own space.
+pub fn Conn::space_on(
+  self : Conn,
+  path : UInt64,
+  level : Level,
+) -> @packet.Space {
+  if level != Level::Application || path == 0UL {
+    return self.space(level)
+  }
+  match self.path_spaces.get(path) {
+    Some(space) => space
+    None => {
+      let space = @packet.Space::new()
+      self.path_spaces[path] = space
+      space
+    }
+  }
+}
+
+///|
+/// How many paths the connection numbers packets for, path 0 among them.
+pub fn Conn::paths(self : Conn) -> Int32 {
+  self.path_spaces.length() + 1
 }
 
 ///|
