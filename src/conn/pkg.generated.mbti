@@ -124,6 +124,10 @@ pub struct Client {
   mut idle_timeout : Int64
   mut at : Int64
   cfg : Config
+  host : String
+  sessions : @tls.Sessions?
+  wall : Int64
+  mut peer_params : Bytes
   // private fields
 }
 pub fn Client::add_path(Self, UInt64, Bytes, Bytes, Int64, nonce~ : Bytes, token~ : Bytes) -> Bool
@@ -134,7 +138,7 @@ pub fn Client::early_accepted(Self) -> Bool
 pub fn Client::finished(Self, UInt64) -> Bool
 pub fn Client::install_zero_rtt(Self, @crypto.Keys) -> Unit
 pub fn Client::is_connected(Self) -> Bool
-pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config) -> Self raise
+pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config, resumption? : Remembered) -> Self raise
 pub fn Client::next_cid(Self) -> Bool
 pub fn Client::open_uni(Self) -> UInt64
 pub fn Client::path_lane(Self, UInt64) -> Lane[Unit]?
@@ -146,6 +150,7 @@ pub fn Client::probe(Self, Int64) -> Array[Bytes]
 pub fn Client::read(Self, UInt64) -> Bytes
 pub fn Client::recv(Self, Bytes, Int64) -> Unit raise
 pub fn Client::recv_on(Self, UInt64, Bytes, Int64) -> Unit raise
+pub fn Client::remembered(Self) -> Remembered?
 pub fn Client::send_datagram(Self, Bytes) -> Bool
 pub fn Client::send_on(Self, UInt64, Array[@frame.Frame], Int64) -> Bool
 pub fn Client::server_cid(Self) -> Bytes
@@ -408,6 +413,11 @@ pub(all) enum Phase {
 pub fn Phase::equal(Self, Self) -> Bool
 pub fn Phase::not_equal(Self, Self) -> Bool
 pub fn Phase::to_repr(Self) -> @debug.Repr
+
+pub(all) struct Remembered {
+  session : @tls.Session
+  params : Bytes
+}
 
 pub struct Sender {
   sched : @stream.Scheduler

@@ -132,6 +132,13 @@ pub struct Client {
   cfg : Config
   /// Probes the timers have decided to send, waiting for the next `poll_out`.
   priv probes : Array[Bytes]
+  /// The name the ticket is filed under, and the store it is filed in, so this connection can
+  /// remember what the next one needs to resume (RFC 9000 §7.4.1).
+  host : String
+  sessions : @tls.Sessions?
+  wall : Int64
+  /// The server's transport parameters exactly as they arrived, which is half of what is kept.
+  mut peer_params : Bytes
   /// This connection's paths beyond the one it started on (draft-ietf-quic-multipath §3). A
   /// client holds no addresses — its caller owns the sockets — so a path is a number here, and
   /// `recv_on` says which one a datagram came in on.
@@ -154,6 +161,7 @@ pub fn Client::new(
   scid : Bytes,
   wall : Int64,
   cfg~ : Config = Config::default(),
+  resumption? : Remembered,
 ) -> Client raise {
   let tls = @tls.Conn::quic_client(
     config,
@@ -164,14 +172,26 @@ pub fn Client::new(
   )
   let (tx, rx) = @crypto.initial(dcid[:])
   let core = Conn::new(false)
+  // What early data may spend: the ticket's own parameters, unless Config overrules them
+  // (RFC 9000 §7.4.1). A client with no ticket and no overrides has no credit, so early data
+  // waits for the handshake instead of risking a flow-control error.
+  let (early_data, early_bidi, early_uni, early_datagram) = early_credit(
+    cfg, resumption,
+  )
   let sender = Sender::new(
-    cfg.zero_rtt_data,
-    cfg.zero_rtt_stream_data,
+    early_data,
+    if early_bidi < early_uni {
+      early_bidi
+    } else {
+      early_uni
+    },
     cfg.max_datagram,
     cfg.max_ack_delay,
     cfg.granularity,
     cfg.max_frame,
   )
+  sender.sched.on_params(data=early_data, bidi=early_bidi, uni=early_uni)
+  sender.on_peer_datagram(early_datagram)
   let client : Client = {
     tls,
     original_dcid: dcid,
@@ -230,6 +250,10 @@ pub fn Client::new(
     at: 0L,
     cfg,
     probes: [],
+    host: server_name,
+    sessions: config.sessions,
+    wall,
+    peer_params: b"",
     paths: Paths::new(local_max=declared_paths(params)),
     lanes: Map([
       (
@@ -244,6 +268,10 @@ pub fn Client::new(
       ),
     ]),
     lane_out: [],
+  }
+  match resumption {
+    Some(session) => client.adopt_ticket(session)
+    None => ()
   }
   client.absorb()
   client
@@ -317,6 +345,7 @@ fn Client::queue_app_crypto(self : Client, data : Bytes) -> Unit {
 /// three connection ids RFC 9000 §7.3 holds the handshake to.
 fn Client::adopt_peer_params(self : Client) -> Unit {
   guard self.tls.peer_params() is Some(raw) else { return }
+  self.peer_params = raw
   self.reset_token = find(decode(raw[:]), StatelessResetToken).map(p => p.value) catch {
     _ => None
   }

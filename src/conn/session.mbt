@@ -58,9 +58,12 @@ pub(all) struct Config {
   /// How many connection ids a peer may hold at once, the handshake's among them, however many it
   /// says it will take (RFC 9000 §5.1.1). Four is quic-go's default, and one offers no spares.
   connection_ids : UInt64
-  /// The flow-control credit the last connection left, which a resuming client may spend on
-  /// 0-RTT data before the server's parameters arrive (RFC 9000 §7.4.1). Zero, the default,
-  /// means early data waits for the handshake rather than risking a flow-control error.
+  /// Overrules what a resuming client remembered of the last connection's flow-control credit,
+  /// which is what 0-RTT data may spend before the server's parameters arrive (RFC 9000 §7.4.1).
+  /// Zero, the default, means the remembered value governs; a client given no ticket has nothing
+  /// to remember and no credit, so its early data waits for the handshake rather than risking a
+  /// flow-control error. §7.4.1 makes the remembered value a ceiling, so raising it here earns a
+  /// flow-control error from the server, not a wider window.
   zero_rtt_data : UInt64
   zero_rtt_stream_data : UInt64
   /// Whether this server answers a client's first Initial with a Retry, so the address is
