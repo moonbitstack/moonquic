@@ -313,3 +313,72 @@ test "the multipath frames round trip with the draft's types" {
     assert_eq(back, frame)
   }
 }
+
+///|
+test "a packet on a path is acknowledged with a PATH_ACK that names it" {
+  let (client, server, conn) = multi_ready()
+  let peer_cid = b"\xc1\xc1\xc1\xc1"
+  assert_true(
+    server.add_path(
+      conn.cid(),
+      1UL,
+      "second",
+      peer_cid,
+      2000L,
+      nonce=b"\x01\x01\x01\x01\x01\x01\x01\x01",
+    ),
+  )
+  let server_cid = conn.paths().local_cid(1UL)
+  guard drain(server, 2000L)
+    .iter()
+    .find_first(d => {
+      d.length() > 1 + peer_cid.length() &&
+      d[1:1 + peer_cid.length()].to_owned() == peer_cid
+    })
+    is Some(challenge) else {
+    fail("no challenge")
+  }
+  assert_true(
+    client.add_path(
+      1UL,
+      server_cid,
+      peer_cid,
+      2000L,
+      nonce=b"\x02\x02\x02\x02\x02\x02\x02\x02",
+      token=Bytes::make(16, b'\x03'),
+    ),
+  )
+  ignore(client.poll_paths(2000L))
+  client.recv_on(1UL, challenge, 2000L)
+  // One PING on the path, which the server owes an acknowledgement for.
+  assert_true(client.send_on(1UL, [Ping], 2500L))
+  for entry in client.poll_paths(2500L) {
+    let (path, datagram) = entry
+    assert_eq(path, 1UL)
+    server.recv(datagram, "second", 2500L)
+  }
+  // The answer carries a PATH_ACK for path 1, not an ACK, and its ranges are path 1's.
+  let keys = conn.app_tx.unwrap()
+  let mut seen : Array[@frame.Frame]? = None
+  for datagram in drain(server, 2500L) {
+    if datagram.length() > 1 + peer_cid.length() &&
+      datagram[1:1 + peer_cid.length()].to_owned() == peer_cid {
+      if recv_short(datagram, peer_cid.length(), keys, largest=-1L, path=1UL)
+        is Some((frames, _)) {
+        seen = Some(frames)
+      }
+    }
+  }
+  guard seen is Some(frames) else {
+    fail("the path's packet was never acknowledged")
+  }
+  guard frames is [PathAck(path_id~, largest~, ..)] else {
+    fail("path 1 was answered with some other frame")
+  }
+  assert_eq(path_id, 1UL)
+  // What it acknowledges is what path 1 has received, and nothing of path 0's.
+  let received = conn.core.conn
+    .space_on(1UL, Level::Application)
+    .largest_received()
+  assert_eq(largest.reinterpret_as_int64(), received)
+}
