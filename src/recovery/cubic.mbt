@@ -105,24 +105,29 @@ fn Cubic::grow(self : Cubic, size : Int64, now : Int64) -> Unit {
 }
 
 ///|
-impl Control for Cubic with fn window(self) {
+/// The defaulted methods of `Control` this controller inherits, named so the promotion to
+/// methods on `Cubic` is explicit rather than implied by the impl.
+pub extend Cubic with Control::{on_new_path}
+
+///|
+pub impl Control for Cubic with fn window(self) {
   self.window
 }
 
 ///|
-impl Control for Cubic with fn in_flight(self) {
+pub impl Control for Cubic with fn in_flight(self) {
   self.in_flight
 }
 
 ///|
-impl Control for Cubic with fn on_sent(self, size) {
+pub impl Control for Cubic with fn on_sent(self, size) {
   self.in_flight = self.in_flight + size
 }
 
 ///|
 /// Without a clock this can only take the bytes out of flight; the growth on an
 /// acknowledgement comes through `on_ack_at`, which has the time.
-impl Control for Cubic with fn on_ack(self, size) {
+pub impl Control for Cubic with fn on_ack(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -131,7 +136,7 @@ impl Control for Cubic with fn on_ack(self, size) {
 }
 
 ///|
-impl Control for Cubic with fn on_ack_at(self, size, now~) {
+pub impl Control for Cubic with fn on_ack_at(self, size, now~) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -141,7 +146,7 @@ impl Control for Cubic with fn on_ack_at(self, size, now~) {
 }
 
 ///|
-impl Control for Cubic with fn on_lost(self, size) {
+pub impl Control for Cubic with fn on_lost(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -153,7 +158,7 @@ impl Control for Cubic with fn on_lost(self, size) {
 /// A congestion signal (RFC 9438 §4.6): W_max remembers the window it fell from, the window
 /// drops to β of it (with fast convergence when it was already below the last W_max), a new
 /// epoch starts, and K is recomputed as the time it takes the cubic to climb back.
-impl Control for Cubic with fn on_congestion(self, at~, now~) {
+pub impl Control for Cubic with fn on_congestion(self, at~, now~) {
   if self.recovering(at) {
     return
   }
@@ -177,13 +182,13 @@ impl Control for Cubic with fn on_congestion(self, at~, now~) {
 ///|
 /// Persistent congestion collapses the window to the minimum and clears the recovery period,
 /// as NewReno's does; the ssthresh left above it puts the next acknowledgement in slow start.
-impl Control for Cubic with fn on_persistent(self) {
+pub impl Control for Cubic with fn on_persistent(self) {
   self.window = self.minimum()
   self.recovery = -1L
 }
 
 ///|
-impl Control for Cubic with fn on_rtt(self, sample~, now~) {
+pub impl Control for Cubic with fn on_rtt(self, sample~, now~) {
   ignore(now)
   if sample > 0L && sample < self.rtt {
     self.rtt = sample
@@ -205,7 +210,7 @@ pub extend Cubic with Control::{
 }
 
 ///|
-impl Control for Cubic with fn on_new_path(self) {
+pub impl Control for Cubic with fn on_new_path(self) {
   let fresh = Cubic::new(policy=self.policy)
   self.window = fresh.window
   self.ssthresh = fresh.ssthresh

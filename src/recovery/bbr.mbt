@@ -182,22 +182,27 @@ pub fn Bbr::target(self : Bbr) -> Int64 {
 }
 
 ///|
-impl Control for Bbr with fn window(self) {
+/// The defaulted methods of `Control` this controller inherits, named so the promotion to
+/// methods on `Bbr` is explicit rather than implied by the impl.
+pub extend Bbr with Control::{on_new_path}
+
+///|
+pub impl Control for Bbr with fn window(self) {
   self.window
 }
 
 ///|
-impl Control for Bbr with fn in_flight(self) {
+pub impl Control for Bbr with fn in_flight(self) {
   self.in_flight
 }
 
 ///|
-impl Control for Bbr with fn on_sent(self, size) {
+pub impl Control for Bbr with fn on_sent(self, size) {
   self.in_flight = self.in_flight + size
 }
 
 ///|
-impl Control for Bbr with fn on_ack(self, size) {
+pub impl Control for Bbr with fn on_ack(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -206,7 +211,7 @@ impl Control for Bbr with fn on_ack(self, size) {
 }
 
 ///|
-impl Control for Bbr with fn on_lost(self, size) {
+pub impl Control for Bbr with fn on_lost(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -217,7 +222,7 @@ impl Control for Bbr with fn on_lost(self, size) {
 ///|
 /// A congestion signal. BBR does not treat loss as its signal: it leaves the window the
 /// model computes alone, and a loss in startup only ends startup early.
-impl Control for Bbr with fn on_congestion(self, at~, now~) {
+pub impl Control for Bbr with fn on_congestion(self, at~, now~) {
   ignore(at)
   ignore(now)
   if self.mode == Startup {
@@ -228,7 +233,7 @@ impl Control for Bbr with fn on_congestion(self, at~, now~) {
 ///|
 /// Persistent congestion is the one loss that resets the model: the path is not delivering,
 /// so the window drops to the minimum and a fresh round-trip minimum is taken.
-impl Control for Bbr with fn on_persistent(self) {
+pub impl Control for Bbr with fn on_persistent(self) {
   self.window = self.minimum()
   self.btl_bw = 0.0
   self.mode = ProbeRtt
@@ -239,7 +244,7 @@ impl Control for Bbr with fn on_persistent(self) {
 ///|
 /// An acknowledgement at a known time: out of flight, into the delivery-rate sample, and the
 /// window recomputed from the model.
-impl Control for Bbr with fn on_ack_at(self, size, now~) {
+pub impl Control for Bbr with fn on_ack_at(self, size, now~) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -307,7 +312,7 @@ impl Control for Bbr with fn on_ack_at(self, size, now~) {
 ///|
 /// A round-trip sample: keep the smallest, and note when it was taken so probe-RTT knows how
 /// long the path has gone without a fresher one.
-impl Control for Bbr with fn on_rtt(self, sample~, now~) {
+pub impl Control for Bbr with fn on_rtt(self, sample~, now~) {
   if sample > 0L && sample < self.min_rtt {
     self.min_rtt = sample
     self.min_rtt_at = now
@@ -325,7 +330,7 @@ impl Control for Bbr with fn on_rtt(self, sample~, now~) {
 /// pacing says how fast to send, the window says how much may be outstanding. Nothing is
 /// offered before the first delivery-rate sample, so the connection is unpaced until it knows
 /// something (RFC 9002 §7.7).
-impl Control for Bbr with fn pacing_rate(self) {
+pub impl Control for Bbr with fn pacing_rate(self) {
   if self.btl_bw <= 0.0 {
     None
   } else {
@@ -354,7 +359,7 @@ pub extend Mode with Debug::{to_repr}
 pub extend Mode with Eq::{not_equal, equal}
 
 ///|
-impl Control for Bbr with fn on_new_path(self) {
+pub impl Control for Bbr with fn on_new_path(self) {
   let fresh = Bbr::new(policy=self.policy)
   self.window = fresh.window
   self.btl_bw = fresh.btl_bw

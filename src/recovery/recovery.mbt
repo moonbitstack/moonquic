@@ -422,24 +422,29 @@ pub fn NewReno::recovering(self : NewReno, at : Int64) -> Bool {
 }
 
 ///|
-impl Control for NewReno with fn window(self) {
+/// The defaulted methods of `Control` this controller inherits, named so the promotion to
+/// methods on `NewReno` is explicit rather than implied by the impl.
+pub extend NewReno with Control::{on_ack_at, on_new_path, on_rtt}
+
+///|
+pub impl Control for NewReno with fn window(self) {
   self.window
 }
 
 ///|
-impl Control for NewReno with fn in_flight(self) {
+pub impl Control for NewReno with fn in_flight(self) {
   self.in_flight
 }
 
 ///|
-impl Control for NewReno with fn on_sent(self, size) {
+pub impl Control for NewReno with fn on_sent(self, size) {
   self.in_flight = self.in_flight + size
 }
 
 ///|
 /// Acknowledgement (RFC 9002 §7.3.1–§7.3.2): out of flight, then grow — by every
 /// acknowledged byte below the threshold, and by one datagram per window above it.
-impl Control for NewReno with fn on_ack(self, size) {
+pub impl Control for NewReno with fn on_ack(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -453,7 +458,7 @@ impl Control for NewReno with fn on_ack(self, size) {
 }
 
 ///|
-impl Control for NewReno with fn on_lost(self, size) {
+pub impl Control for NewReno with fn on_lost(self, size) {
   self.in_flight = if self.in_flight > size {
     self.in_flight - size
   } else {
@@ -466,7 +471,7 @@ impl Control for NewReno with fn on_lost(self, size) {
 /// itself, floored at the minimum, and a recovery period begins. A signal from a packet
 /// sent inside the period already under way is ignored, so one round of loss costs one
 /// halving rather than one per packet.
-impl Control for NewReno with fn on_congestion(self, at~, now~) {
+pub impl Control for NewReno with fn on_congestion(self, at~, now~) {
   if self.recovering(at) {
     return
   }
@@ -479,7 +484,7 @@ impl Control for NewReno with fn on_congestion(self, at~, now~) {
 ///|
 /// Persistent congestion (RFC 9002 §7.6): the window collapses to the minimum and slow
 /// start begins again, because nothing got through for longer than a congestion period.
-impl Control for NewReno with fn on_persistent(self) {
+pub impl Control for NewReno with fn on_persistent(self) {
   self.window = self.minimum()
   self.recovery = -1L
 }
@@ -719,7 +724,7 @@ pub extend Sent with Debug::{to_repr}
 pub extend Sent with Eq::{not_equal, equal}
 
 ///|
-impl Control for NewReno with fn on_new_path(self) {
+pub impl Control for NewReno with fn on_new_path(self) {
   let fresh = NewReno::new(policy=self.policy)
   self.window = fresh.window
   self.ssthresh = fresh.ssthresh

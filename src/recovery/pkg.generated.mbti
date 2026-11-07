@@ -43,12 +43,14 @@ pub fn Bbr::on_ack(Self, Int64) -> Unit
 pub fn Bbr::on_ack_at(Self, Int64, now~ : Int64) -> Unit
 pub fn Bbr::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
 pub fn Bbr::on_lost(Self, Int64) -> Unit
+pub fn Bbr::on_new_path(Self) -> Unit
 pub fn Bbr::on_persistent(Self) -> Unit
 pub fn Bbr::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
 pub fn Bbr::on_sent(Self, Int64) -> Unit
 pub fn Bbr::pacing_rate(Self) -> Double?
 pub fn Bbr::target(Self) -> Int64
 pub fn Bbr::window(Self) -> Int64
+pub impl Control for Bbr
 
 pub struct Cubic {
   mut window : Int64
@@ -68,6 +70,7 @@ pub fn Cubic::on_ack(Self, Int64) -> Unit
 pub fn Cubic::on_ack_at(Self, Int64, now~ : Int64) -> Unit
 pub fn Cubic::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
 pub fn Cubic::on_lost(Self, Int64) -> Unit
+pub fn Cubic::on_new_path(Self) -> Unit
 pub fn Cubic::on_persistent(Self) -> Unit
 pub fn Cubic::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
 pub fn Cubic::on_sent(Self, Int64) -> Unit
@@ -76,6 +79,7 @@ pub fn Cubic::recovering(Self, Int64) -> Bool
 pub fn Cubic::ssthresh(Self) -> Int64
 pub fn Cubic::target(Self, Int64) -> Int64
 pub fn Cubic::window(Self) -> Int64
+pub impl Control for Cubic
 
 pub struct Flight {
   mut packets : Array[Sent]
@@ -111,14 +115,18 @@ pub fn NewReno::in_flight(Self) -> Int64
 pub fn NewReno::minimum(Self) -> Int64
 pub fn NewReno::new(policy? : Policy) -> Self
 pub fn NewReno::on_ack(Self, Int64) -> Unit
+pub fn NewReno::on_ack_at(Self, Int64, now~ : Int64) -> Unit
 pub fn NewReno::on_congestion(Self, at~ : Int64, now~ : Int64) -> Unit
 pub fn NewReno::on_lost(Self, Int64) -> Unit
+pub fn NewReno::on_new_path(Self) -> Unit
 pub fn NewReno::on_persistent(Self) -> Unit
+pub fn NewReno::on_rtt(Self, sample~ : Int64, now~ : Int64) -> Unit
 pub fn NewReno::on_sent(Self, Int64) -> Unit
 pub fn NewReno::pacing_rate(Self) -> Double?
 pub fn NewReno::recovering(Self, Int64) -> Bool
 pub fn NewReno::ssthresh(Self) -> Int64
 pub fn NewReno::window(Self) -> Int64
+pub impl Control for NewReno
 
 pub struct Pacer {
   // private fields
