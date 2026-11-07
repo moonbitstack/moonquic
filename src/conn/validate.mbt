@@ -91,7 +91,9 @@ fn frame_fault(
   }
   match frame {
     Ack(largest~, first_range~, ranges~, ..)
-    | AckEcn(largest~, first_range~, ranges~, ..) => {
+    | AckEcn(largest~, first_range~, ranges~, ..)
+    | PathAck(largest~, first_range~, ranges~, ..)
+    | PathAckEcn(largest~, first_range~, ranges~, ..) => {
       // RFC 9000 §19.3.1: a range that would start below packet number 0 is a frame this
       // endpoint cannot have written. `Seen::read` raises for exactly those.
       let _ = @frame.Seen::read(largest, first_range, ranges) catch {
@@ -144,6 +146,46 @@ fn frame_fault(
           code: frame_encoding_error,
           reason: b"NEW_CONNECTION_ID with a short reset token",
         })
+      } else {
+        None
+      }
+    PathNewConnectionId(
+      path_id~,
+      seq~,
+      retire_prior_to~,
+      conn_id~,
+      reset_token~
+    ) =>
+      // §4.4: the same rules NEW_CONNECTION_ID has, per path.
+      if path_id > max_path_id {
+        Some({ code: protocol_violation, reason: b"a path id past 2^32-1", })
+      } else if conn_id.length() == 0 {
+        Some({
+          code: frame_encoding_error,
+          reason: b"PATH_NEW_CONNECTION_ID with no id",
+        })
+      } else if retire_prior_to > seq {
+        Some({
+          code: frame_encoding_error,
+          reason: b"retire_prior_to past the sequence number",
+        })
+      } else if reset_token.length() != 16 {
+        Some({
+          code: frame_encoding_error,
+          reason: b"PATH_NEW_CONNECTION_ID with a short reset token",
+        })
+      } else {
+        None
+      }
+    PathRetireConnectionId(path_id~, ..) =>
+      if path_id > max_path_id {
+        Some({ code: protocol_violation, reason: b"a path id past 2^32-1", })
+      } else {
+        None
+      }
+    PathCidsBlocked(path_id~, ..) =>
+      if path_id > max_path_id {
+        Some({ code: protocol_violation, reason: b"a path id past 2^32-1", })
       } else {
         None
       }

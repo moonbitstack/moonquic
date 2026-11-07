@@ -25,7 +25,7 @@ pub(all) enum Kind {
   InitialScid
   RetryScid
   MaxDatagramFrameSize
-  /// draft-ietf-quic-multipath §3: the largest path id this endpoint will accept.
+  /// draft-ietf-quic-multipath §2.1: the largest path id this endpoint will maintain.
   InitialMaxPathId
   Other(UInt64)
 }
@@ -52,7 +52,7 @@ pub fn Kind::code(self : Kind) -> UInt64 {
     InitialScid => 0x0f
     RetryScid => 0x10
     MaxDatagramFrameSize => 0x20
-    InitialMaxPathId => 0x0f739bbc1b666d0d
+    InitialMaxPathId => 0x3e
     Other(code) => code
   }
 }
@@ -79,7 +79,7 @@ pub fn Kind::of(code : UInt64) -> Kind {
     0x0f => InitialScid
     0x10 => RetryScid
     0x20 => MaxDatagramFrameSize
-    0x0f739bbc1b666d0d => InitialMaxPathId
+    0x3e => InitialMaxPathId
     _ => Other(code)
   }
 }

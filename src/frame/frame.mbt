@@ -63,11 +63,41 @@ pub(all) enum Frame {
   // application-error close (0x1d), which omits the triggering frame type.
   ConnectionClose(error_code~ : UInt64, frame_type~ : UInt64?, reason~ : Bytes)
   // Multipath (draft-ietf-quic-multipath §4): a connection's paths beyond the one it started
-  // on. Path 0 is the handshake's, and it is never given up.
+  // on. Path 0 is the handshake's, and it is never given up. Each path numbers its packets
+  // on its own, so an acknowledgement names the path it is about (§4.1).
+  PathAck(
+    path_id~ : UInt64,
+    largest~ : UInt64,
+    delay~ : UInt64,
+    first_range~ : UInt64,
+    ranges~ : Array[(UInt64, UInt64)]
+  )
+  // PATH_ACK of the ECN form (type 0x3f): the ACK body, then the three counts (§4.1).
+  PathAckEcn(
+    path_id~ : UInt64,
+    largest~ : UInt64,
+    delay~ : UInt64,
+    first_range~ : UInt64,
+    ranges~ : Array[(UInt64, UInt64)],
+    ect0~ : UInt64,
+    ect1~ : UInt64,
+    ce~ : UInt64
+  )
   PathAbandon(path_id~ : UInt64, error_code~ : UInt64)
+  // `available` picks PATH_STATUS_AVAILABLE (0x3e77) over PATH_STATUS_BACKUP (0x3e76); the
+  // two share one sequence-number space per path (§4.3).
   PathStatus(path_id~ : UInt64, seq~ : UInt64, available~ : Bool)
+  PathNewConnectionId(
+    path_id~ : UInt64,
+    seq~ : UInt64,
+    retire_prior_to~ : UInt64,
+    conn_id~ : Bytes,
+    reset_token~ : Bytes
+  )
+  PathRetireConnectionId(path_id~ : UInt64, seq~ : UInt64)
   MaxPathId(max~ : UInt64)
   PathsBlocked(max~ : UInt64)
+  PathCidsBlocked(path_id~ : UInt64, next~ : UInt64)
 }
 
 ///|
@@ -199,25 +229,72 @@ pub fn encode(f : Frame) -> Bytes {
       buf.write_bytes(data[:])
     }
     HandshakeDone => buf.write_bytes(@quic.encode(0x1eUL)[:])
+    PathAck(path_id~, largest~, delay~, first_range~, ranges~) => {
+      buf.write_bytes(@quic.encode(0x3eUL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      write_ack(buf, largest, delay, first_range, ranges)
+    }
+    PathAckEcn(
+      path_id~,
+      largest~,
+      delay~,
+      first_range~,
+      ranges~,
+      ect0~,
+      ect1~,
+      ce~
+    ) => {
+      buf.write_bytes(@quic.encode(0x3fUL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      write_ack(buf, largest, delay, first_range, ranges)
+      buf.write_bytes(@quic.encode(ect0)[:])
+      buf.write_bytes(@quic.encode(ect1)[:])
+      buf.write_bytes(@quic.encode(ce)[:])
+    }
     PathAbandon(path_id~, error_code~) => {
-      buf.write_bytes(@quic.encode(0x15228c05UL)[:])
+      buf.write_bytes(@quic.encode(0x3e75UL)[:])
       buf.write_bytes(@quic.encode(path_id)[:])
       buf.write_bytes(@quic.encode(error_code)[:])
     }
     PathStatus(path_id~, seq~, available~) => {
       buf.write_bytes(
-        @quic.encode(if available { 0x15228c08UL } else { 0x15228c07UL })[:],
+        @quic.encode(if available { 0x3e77UL } else { 0x3e76UL })[:],
       )
       buf.write_bytes(@quic.encode(path_id)[:])
       buf.write_bytes(@quic.encode(seq)[:])
     }
+    PathNewConnectionId(
+      path_id~,
+      seq~,
+      retire_prior_to~,
+      conn_id~,
+      reset_token~
+    ) => {
+      buf.write_bytes(@quic.encode(0x3e78UL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      buf.write_bytes(@quic.encode(seq)[:])
+      buf.write_bytes(@quic.encode(retire_prior_to)[:])
+      buf.write_byte(conn_id.length().to_byte())
+      buf.write_bytes(conn_id[:])
+      buf.write_bytes(reset_token[:])
+    }
+    PathRetireConnectionId(path_id~, seq~) => {
+      buf.write_bytes(@quic.encode(0x3e79UL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      buf.write_bytes(@quic.encode(seq)[:])
+    }
     MaxPathId(max~) => {
-      buf.write_bytes(@quic.encode(0x15228c0cUL)[:])
+      buf.write_bytes(@quic.encode(0x3e7aUL)[:])
       buf.write_bytes(@quic.encode(max)[:])
     }
     PathsBlocked(max~) => {
-      buf.write_bytes(@quic.encode(0x15228c0dUL)[:])
+      buf.write_bytes(@quic.encode(0x3e7bUL)[:])
       buf.write_bytes(@quic.encode(max)[:])
+    }
+    PathCidsBlocked(path_id~, next~) => {
+      buf.write_bytes(@quic.encode(0x3e7cUL)[:])
+      buf.write_bytes(@quic.encode(path_id)[:])
+      buf.write_bytes(@quic.encode(next)[:])
     }
     ConnectionClose(error_code~, frame_type~, reason~) => {
       match frame_type {
@@ -485,9 +562,43 @@ fn decode_opt(b : BytesView) -> (Frame, Int32)? {
       off = off + n
       Some((ConnectionClose(error_code~, frame_type=None, reason~), off))
     }
-    // The multipath frames share a type range of their own; the draft assigns them from
-    // 0x15228c00 and they are eight-byte varints.
-    0x15228c05UL => {
+    // The multipath frames have a type range of their own (draft-ietf-quic-multipath §4, §6).
+    ty if ty == 0x3eUL || ty == 0x3fUL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l0)) else { return None }
+      off = off + l0
+      guard read_ack(b, off)
+        is Some((largest, delay, first_range, ranges, after)) else {
+        return None
+      }
+      off = after
+      if ty == 0x3eUL {
+        Some((PathAck(path_id~, largest~, delay~, first_range~, ranges~), off))
+      } else {
+        guard @quic.decode(b[off:]) is Some((ect0, l7)) else { return None }
+        off = off + l7
+        guard @quic.decode(b[off:]) is Some((ect1, l8)) else { return None }
+        off = off + l8
+        guard @quic.decode(b[off:]) is Some((ce, l9)) else { return None }
+        off = off + l9
+        Some(
+          (
+            PathAckEcn(
+              path_id~,
+              largest~,
+              delay~,
+              first_range~,
+              ranges~,
+              ect0~,
+              ect1~,
+              ce~,
+            ),
+            off,
+          ),
+        )
+      }
+    }
+    0x3e75UL => {
       let mut off = tlen
       guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
       off = off + l1
@@ -495,21 +606,72 @@ fn decode_opt(b : BytesView) -> (Frame, Int32)? {
       off = off + l2
       Some((PathAbandon(path_id~, error_code~), off))
     }
-    ty if ty == 0x15228c07UL || ty == 0x15228c08UL => {
+    ty if ty == 0x3e76UL || ty == 0x3e77UL => {
       let mut off = tlen
       guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
       off = off + l1
       guard @quic.decode(b[off:]) is Some((seq, l2)) else { return None }
       off = off + l2
-      Some((PathStatus(path_id~, seq~, available=ty == 0x15228c08UL), off))
+      Some((PathStatus(path_id~, seq~, available=ty == 0x3e77UL), off))
     }
-    0x15228c0cUL => {
+    0x3e78UL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l0)) else { return None }
+      off = off + l0
+      guard @quic.decode(b[off:]) is Some((seq, l1)) else { return None }
+      off = off + l1
+      guard @quic.decode(b[off:]) is Some((retire_prior_to, l2)) else {
+        return None
+      }
+      off = off + l2
+      if b.length() < off + 1 {
+        return None
+      }
+      let cid_len = b[off].to_int()
+      off = off + 1
+      if b.length() < off + cid_len + 16 {
+        return None
+      }
+      let conn_id = b[off:off + cid_len].to_owned()
+      off = off + cid_len
+      let reset_token = b[off:off + 16].to_owned()
+      off = off + 16
+      Some(
+        (
+          PathNewConnectionId(
+            path_id~,
+            seq~,
+            retire_prior_to~,
+            conn_id~,
+            reset_token~,
+          ),
+          off,
+        ),
+      )
+    }
+    0x3e79UL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
+      off = off + l1
+      guard @quic.decode(b[off:]) is Some((seq, l2)) else { return None }
+      off = off + l2
+      Some((PathRetireConnectionId(path_id~, seq~), off))
+    }
+    0x3e7aUL => {
       guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
       Some((MaxPathId(max~), tlen + vl))
     }
-    0x15228c0dUL => {
+    0x3e7bUL => {
       guard @quic.decode(b[tlen:]) is Some((max, vl)) else { return None }
       Some((PathsBlocked(max~), tlen + vl))
+    }
+    0x3e7cUL => {
+      let mut off = tlen
+      guard @quic.decode(b[off:]) is Some((path_id, l1)) else { return None }
+      off = off + l1
+      guard @quic.decode(b[off:]) is Some((next, l2)) else { return None }
+      off = off + l2
+      Some((PathCidsBlocked(path_id~, next~), off))
     }
     0x30UL =>
       // No length: the datagram runs to the end of the packet (RFC 9221 §4).
@@ -550,7 +712,12 @@ pub fn decode(b : BytesView) -> (Frame, Int32) raise Refused {
 /// PADDING, ACK, ACK_ECN, and CONNECTION_CLOSE obliges the peer to acknowledge the packet.
 pub fn elicits_ack(frame : Frame) -> Bool {
   match frame {
-    Padding(_) | Ack(..) | AckEcn(..) | ConnectionClose(..) => false
+    Padding(_)
+    | Ack(..)
+    | AckEcn(..)
+    | PathAck(..)
+    | PathAckEcn(..)
+    | ConnectionClose(..) => false
     _ => true
   }
 }
@@ -702,7 +869,9 @@ pub fn Seen::read(
 pub fn Frame::acked(self : Frame) -> Array[(UInt64, UInt64)] raise Refused {
   match self {
     Ack(largest~, first_range~, ranges~, ..)
-    | AckEcn(largest~, first_range~, ranges~, ..) =>
+    | AckEcn(largest~, first_range~, ranges~, ..)
+    | PathAck(largest~, first_range~, ranges~, ..)
+    | PathAckEcn(largest~, first_range~, ranges~, ..) =>
       Seen::read(largest, first_range, ranges).ranges()
     _ => []
   }
