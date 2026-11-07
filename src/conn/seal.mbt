@@ -71,11 +71,12 @@ pub fn send_short(
   keys : @crypto.Keys,
   spin~ : Bool = false,
   key_phase~ : Bool = false,
+  path~ : UInt64 = 0UL,
 ) -> Bytes {
   let payload = @packet.payload(frames)
   let pn = @packet.number(number, None, size~)
   let h : @packet.Short = { spin, key_phase, pn_length: size, dcid, }
-  keys.seal(h.header(pn[:])[:], payload[:], number~)
+  keys.seal(h.header(pn[:])[:], payload[:], number~, path~)
 }
 
 ///|
@@ -114,8 +115,9 @@ pub fn recv_short(
   dcid_len : Int32,
   keys : @crypto.Keys,
   largest~ : Int64 = -1L,
+  path~ : UInt64 = 0UL,
 ) -> (Array[@frame.Frame], Int64)? raise @packet.Refused {
-  match keys.open(packet[:], largest~, at=1 + dcid_len) {
+  match keys.open(packet[:], largest~, at=1 + dcid_len, path~) {
     Some((payload, pn)) => Some((@packet.read_payload(payload), pn))
     None => None
   }

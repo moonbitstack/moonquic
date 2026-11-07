@@ -322,12 +322,40 @@ pub fn next(
 /// XORed with the IV (RFC 9001 §5.3). The number occupies the low eight bytes and any
 /// higher IV bytes pass through.
 pub fn Keys::nonce(self : Keys, number : Int64) -> Bytes {
+  path_nonce(self.iv[:], 0UL, number)
+}
+
+///|
+/// The AEAD nonce for a packet on path `path`, whose packet numbers start over at zero
+/// (draft-ietf-quic-multipath §2.4). The draft composes a 96-bit Path-and-Packet-Number from
+/// the 32 bits of the path id in network byte order, two zero bits, and the 62-bit packet
+/// number, and XORs it with the IV: two paths may then use the same number without using the
+/// same nonce. Path 0 gives the number RFC 9001 §5.3 describes, so a connection with one path
+/// computes exactly what it did before.
+pub fn Keys::nonce_at(self : Keys, path : UInt64, number : Int64) -> Bytes {
+  path_nonce(self.iv[:], path, number)
+}
+
+///|
+/// The nonce `Keys::nonce_at` computes, from an IV. Split out so the draft's own vector can be
+/// checked against it without a key schedule.
+fn path_nonce(iv : BytesView, path : UInt64, number : Int64) -> Bytes {
+  let n = iv.length()
   let buf = Buffer()
-  let n = self.iv.length()
+  // The PPN is the path id in the four bytes just above the packet number, then the number in
+  // the low eight. An IV longer than twelve bytes leaves the top ones alone.
   for i = 0; i < n; i = i + 1 {
     let at = n - 1 - i
-    let byte = if at >= 8 { 0 } else { ((number >> (at * 8)) & 0xffL).to_int() }
-    buf.write_byte((self.iv[i].to_int() ^ byte).to_byte())
+    let byte = if at >= 8 {
+      if at < 12 {
+        ((path >> ((at - 8) * 8)) & 0xffUL).to_int()
+      } else {
+        0
+      }
+    } else {
+      ((number >> (at * 8)) & 0xffL).to_int()
+    }
+    buf.write_byte((iv[i].to_int() ^ byte).to_byte())
   }
   buf.to_bytes()
 }
@@ -406,10 +434,11 @@ pub fn Keys::seal(
   header : BytesView,
   payload : BytesView,
   number~ : Int64,
+  path~ : UInt64 = 0UL,
 ) -> Bytes {
   let size = (header[0].to_int() & 0x03) + 1
   let body = (self.suite.aead)(self.key).seal(
-    nonce=self.nonce(number)[:],
+    nonce=self.nonce_at(path, number)[:],
     plain=payload,
     aad=header,
   )
@@ -440,6 +469,7 @@ pub fn Keys::open(
   packet : BytesView,
   largest~ : Int64,
   at? : Int32,
+  path~ : UInt64 = 0UL,
 ) -> (Bytes, Int64)? {
   let long = packet.length() > 0 && (packet[0].to_int() & 0x80) != 0
   let tail = if long { @packet.read_header(packet) } else { None }
@@ -471,7 +501,7 @@ pub fn Keys::open(
     return None
   }
   let plain = (self.suite.aead)(self.key).open(
-    nonce=self.nonce(number)[:],
+    nonce=self.nonce_at(path, number)[:],
     cipher=recovered[from:stop],
     aad=recovered[0:from],
   ) catch {
