@@ -3,3 +3,4 @@
 !.moonignore
 _*
 target/
+docs/engine/

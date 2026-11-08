@@ -1,0 +1,65 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "docs/**"
+      - "src/**"
+      - "scripts/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-26.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      # The page prints a real packet, so the library is compiled for the browser here rather than
+      # checked in: docs/engine/ is in .gitignore, and the pages import what this step leaves.
+      - name: build the engine for the page
+        run: |
+          moon update
+          moon build --target js --release src/examples/browser
+          mkdir -p docs/engine
+          cp _build/js/release/build/examples/browser/browser.js docs/engine/moonquic.js
+
+      - name: the reference is up to date
+        run: |
+          python3 scripts/gen_api.py
+          git diff --exit-code docs/api.html docs/assets/stats.json
+
+      - name: configure pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs
+
+      - name: deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
