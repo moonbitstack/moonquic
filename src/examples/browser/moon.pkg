@@ -1,0 +1,10 @@
+pkgtype(kind: "foreign_library")
+
+supported_targets = "js"
+
+import {
+  "moonbitstack/moonquic/conn",
+  "moonbitstack/moonquic/frame",
+  "moonbitstack/moonquic/packet",
+  "moonbitstack/moonquic/crypto",
+}
