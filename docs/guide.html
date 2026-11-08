@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide — moonquic</title>
+<meta name="description" content="From an empty project to a packet, a protected header, a second path and a resumed connection, in the order a reader needs them.">
+<meta name="theme-color" content="#f4eddf">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f4eddf'/%3E%3Cg fill='%2312181c'%3E%3Crect x='6' y='7' width='5' height='5'/%3E%3Crect x='14' y='7' width='5' height='5'/%3E%3Crect x='22' y='7' width='4' height='5'/%3E%3Crect x='6' y='19' width='5' height='5'/%3E%3Crect x='18' y='19' width='5' height='5'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+  (function () {
+    var KEY = "moonquic-theme", root = document.documentElement;
+    var entry = performance.getEntriesByType("navigation")[0];
+    try { if (entry && entry.type === "reload") sessionStorage.removeItem(KEY); } catch (e) {}
+    var value = null;
+    try { value = sessionStorage.getItem(KEY); } catch (e) {}
+    if (!value) {
+      value = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    root.dataset.theme = value;
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="shell masthead__inner">
+    <a class="brand" href="./" aria-label="moonquic, home">
+      <svg class="brand__mark" viewBox="0 0 26 32" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="25" height="31" fill="none" stroke="currentColor" stroke-width="1"></rect>
+        <g fill="currentColor">
+          <rect x="5" y="6" width="4" height="4"></rect>
+          <rect x="11" y="6" width="4" height="4"></rect>
+          <rect x="18" y="6" width="3" height="4"></rect>
+          <rect x="5" y="14" width="4" height="4"></rect>
+          <rect x="15" y="14" width="4" height="4"></rect>
+          <rect x="11" y="22" width="4" height="4"></rect>
+          <rect x="18" y="22" width="3" height="4"></rect>
+        </g>
+      </svg>
+      <span>
+        <span class="brand__word">moonquic</span>
+        <span class="brand__sub">quic transport</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="./">Home</a>
+      <a href="guide.html" aria-current="page">Guide</a>
+      <a href="api.html">API</a>
+      <a href="capture.html">Capture</a>
+    </nav>
+    <button class="iconbtn" type="button" data-theme-toggle aria-label="Switch theme" aria-pressed="false">
+      <svg class="iconbtn__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"></path>
+      </svg>
+      <svg class="iconbtn__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"></path>
+      </svg>
+    </button>
+    <a class="iconbtn" href="https://github.com/moonbitstack/moonquic" aria-label="Repository on GitHub" title="Repository on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell" style="padding-block:clamp(36px,5vw,60px) 0">
+    <header style="max-width:70ch">
+      <p class="kicker">guide · six steps</p>
+      <h1 class="display" style="font-size:clamp(38px,5.4vw,62px)">From nothing to a packet</h1>
+      <p class="lead" style="margin-top:16px">An empty project, a frame, a protected header, a second
+        path, a resumed connection, and the clock that holds them together. Every block below is code
+        this module compiles as it stands, except the one marked as a sketch — that one needs a
+        certificate store and a socket loop around it.</p>
+    </header>
+  </div>
+  <div class="shell doc">
+    <nav class="rail" aria-label="This page">
+      <ol>
+        <li><a href="#install">Add it</a></li>
+        <li><a href="#frames">Frames, both ways</a></li>
+        <li><a href="#protect">Protect a packet</a></li>
+        <li><a href="#paths">A second path</a></li>
+        <li><a href="#resume">Resume a connection</a></li>
+        <li><a href="#time">Time and loss</a></li>
+      </ol>
+    </nav>
+
+    <div class="prose">
+      <h2 id="install">Add it</h2>
+      <p><code>moon add moonbitstack/moonquic</code>, then import what you need. Six packages, each
+        with one job: <code>frame</code> and <code>packet</code> are codecs, <code>crypto</code> is
+        protection, <code>recovery</code> is the clock's business, <code>stream</code> is the
+        application's, and <code>conn</code> is the transport that ties them together.</p>
+      <p>Nothing here opens a socket or reads a clock. The peer's address is a type parameter — a
+        string, an enum, whatever your UDP loop keys connections by — and every entry point takes
+        <code>now</code> in microseconds. That is what makes this library testable against a loss
+        pattern, and what lets the page you are reading print a real packet: it is the same code,
+        compiled to JavaScript.</p>
+
+      <h2 id="frames">Frames, both ways</h2>
+      <p>A packet's payload is a run of frames. <code>@frame.decode</code> answers the frame and how
+        many bytes it took, so reading a payload is a loop; encoding is one call per frame.</p>
+<pre class="scroll"><code>let frames : Array[@frame.Frame] = [
+  @frame.Crypto(offset=0UL, data=b"hello"),
+  @frame.MaxData(1_000_000UL),
+  @frame.PathStatus(path_id=1UL, seq=1UL, available=true),
+]
+let mut wire = b""
+for frame in frames {
+  wire = wire + @frame.encode(frame)
+}
+let mut at = 0
+let back : Array[@frame.Frame] = []
+while at &lt; wire.length() {
+  let (frame, used) = @frame.decode(wire[at:]) catch {
+    _ => abort("a frame did not decode")
+  }
+  back.push(frame)
+  at = at + used
+}
+assert_eq(back, frames)</code></pre>
+      <p>The set is the whole of RFC 9000 §19, RFC 9221's DATAGRAM, and the multipath frames. A frame
+        the codec does not know is refused rather than skipped: RFC 9000 §12.4 makes an unknown type a
+        connection error, and a silent skip would hide it from both ends.</p>
+
+      <h2 id="protect">Protect a packet</h2>
+      <p>The Initial keys come from the destination connection id alone, so the first packet can be
+        built before anything has been negotiated. Header first, then <code>seal</code>, which
+        authenticates the header as associated data and masks it.</p>
+<pre class="scroll"><code>let dcid : Bytes = b"\x83\x94\xc8\xf0\x3e\x51\x57\x08"
+let scid : Bytes = b"\xaa\xbb\xcc\xdd"
+let (rx, tx) = @crypto.initial(dcid[:])
+let wire = @conn.seal_long(
+  @packet.Kind::Initial, 1U, dcid, scid, 0L, 4,
+  @packet.payload([@frame.Ping]), tx,
+)
+let opened = @conn.recv_long(wire, rx, largest=-1L) catch {
+  _ => abort("the packet did not open")
+}
+guard opened is Some((read, number)) else { abort("the packet did not open") }
+assert_eq(number, 0L)
+assert_eq(read, [@frame.Ping])</code></pre>
+      <p>The last sixteen bytes are the tag. A receiver that gets a different number, or a byte
+        changed anywhere before the tag, gets <code>None</code> — one answer for every way of being
+        unreadable, because dropping the packet is the only thing to do about any of them.</p>
+
+      <h2 id="paths">A second path</h2>
+      <p>Multipath starts with a transport parameter and a connection id: <code>initial_max_path_id</code>
+        says how many paths each end will maintain, and a path is identified by the id its packets
+        name, never by the address they came from. Each path then keeps its own packet numbers, its own
+        round-trip estimate and congestion window, and its own acknowledgement.</p>
+<pre class="scroll"><code>let paths = @conn.Paths::new(local_max=2UL)   // what this end will maintain
+paths.on_max_path_id(1UL)                     // what the peer said it would
+assert_true(paths.openable(1UL))
+assert_false(paths.openable(2UL))             // the peer offered one path, not two
+let spare : Bytes = b"\xaa\xbb\xcc\xdd"
+paths.bind(1UL, spare)                        // the peer's id for the path
+ignore(paths.bind_local(1UL, b"\x01\x02"))    // this end's
+assert_eq(paths.path_of(b"\x01\x02"), 1UL)
+assert_false(paths.validated(1UL))
+ignore(paths.start(1UL, b"\x10\x20\x30\x40\x50\x60\x70\x80"))
+assert_true(paths.prove(1UL, b"\x10\x20\x30\x40\x50\x60\x70\x80"))
+assert_true(paths.validated(1UL))</code></pre>
+      <p>Two paths may use the same packet number, because the nonce names the path. Path 0 gives
+        exactly the nonce RFC 9001 describes, so a connection that never opens a second path computes
+        what it always did — and the first packet on a new path is number 0 there, whatever path 0 has
+        used.</p>
+<pre class="scroll"><code>let (_, keys) = @crypto.initial(b"\x83\x94\xc8\xf0\x3e\x51\x57\x08")
+assert_eq(keys.nonce_at(0UL, 54321L), keys.nonce(54321L))
+assert_true(keys.nonce_at(1UL, 54321L) != keys.nonce(54321L))</code></pre>
+      <p>On a server, <code>Session::send_on</code> puts frames on a path and
+        <code>Session::poll_lane</code> hands back the datagrams that path has ready with the address
+        they belong on; <code>Endpoint::add_path</code> makes the connection id the path answers to. On
+        a client the caller owns the sockets, so it says which path a datagram arrived on
+        (<code>recv_on</code>) and gets the path id back with what to send (<code>poll_paths</code>).</p>
+
+      <h2 id="resume">Resume a connection</h2>
+      <p>0-RTT is only safe if the client knows what the last connection left it: RFC 9000 §7.4.1
+        forbids guessing the flow-control credit. <code>Client::remembered</code> is the ticket
+        together with the parameter block it was issued under, and passing it back is all the next
+        connection needs.</p>
+<p class="sketchlabel">The shape of it — not compileable on its own</p>
+<pre class="scroll"><code>let kept = client.remembered()             // a ticket and the parameters it came with
+let next = @conn.Client::new(              // the sketch: needs a store and a socket loop
+  @tls.Client::new(roots, alpn=["h3"], sessions=store, early=true),
+  "a.example",
+  @conn.encode(params),
+  rand=entropy,
+  dcid=Bytes::make(8, 3),
+  scid=Bytes::make(8, 4),
+  now,
+  resumption=kept,
+)</code></pre>
+      <p><code>Config</code>'s <code>zero_rtt_data</code> and <code>zero_rtt_stream_data</code> overrule
+        what was remembered rather than being the only source: zero, the default, means the remembered
+        value governs. A client with a ticket and no remembered block still has nothing to spend, so
+        its early data waits for the handshake instead of risking a flow-control error the server would
+        answer with a close.</p>
+      <p class="note">A server allows early data with <code>@tls.Tickets::new(keys, early=n)</code> and
+        judges tickets at <code>wall</code>, seconds since the epoch — a different clock from
+        <code>now</code>, which only drives timers. An endpoint given no <code>wall</code> neither
+        issues nor takes a ticket, because 0-RTT data can be replayed by whoever recorded it.</p>
+
+      <h2 id="time">Time and loss</h2>
+      <p>Nothing moves without <code>tick</code>. It runs the probe timeout on each handshake level,
+        the send loop's own, the idle timeout and the closing period, and it is where a lost handshake
+        flight is put back on the wire. A client also owes a server an occasional padded Initial with a
+        PING, because a server whose amplification budget is spent cannot answer anything else.</p>
+      <p>The same timer is what recovers a lost client Finished: the packet nobody can do without.
+        Without it the server never confirms the handshake, and both ends wait out their idle timers
+        holding a connection that is finished but not confirmed.</p>
+<pre class="scroll"><code>let policy = @recovery.Policy::new(
+  datagram=1200L,
+  ack_delay=25_000L,
+  granularity=1_000L,
+)
+let state = @recovery.State::new(policy~, control=@recovery.Cubic::new())
+assert_true(state.window() > 0L)</code></pre>
+      <p>CUBIC follows a cubic function of the time since the last reduction and falls to 0.7 rather
+        than to half; BBR sizes the window from the bandwidth-delay product and does not treat a loss
+        as its congestion signal. Both implement <code>Control</code>, so a controller of your own is
+        a trait implementation and nothing else.</p>
+    </div>
+  </div>
+</main>
+
+<footer class="colophon">
+  <div class="shell colophon__row">
+    <span>moonquic · Apache-2.0</span>
+    <span><a href="./">home</a> · <a href="api.html">api</a> · <a href="capture.html">capture</a></span>
+    <span><a href="https://mooncakes.io/docs/moonbitstack/moonquic">mooncakes</a> · <a href="https://github.com/moonbitstack/moonquic">source</a></span>
+  </div>
+</footer>
+
+<script src="assets/theme.js" defer></script>
+<script>
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll(".rail a"));
+    var targets = links
+      .map(function (link) {
+        return document.getElementById(link.getAttribute("href").slice(1));
+      })
+      .filter(Boolean);
+    if (!targets.length) {
+      return;
+    }
+    var mark = function () {
+      var at = window.scrollY + 140;
+      var here = 0;
+      targets.forEach(function (target, index) {
+        if (target.offsetTop <= at) {
+          here = index;
+        }
+      });
+      links.forEach(function (link, index) {
+        link.classList.toggle("is-here", index === here);
+      });
+    };
+    window.addEventListener("scroll", mark, { passive: true });
+    mark();
+  })();
+</script>
+</body>
+</html>

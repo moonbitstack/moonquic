@@ -1,5 +1,13 @@
 # moonquic
 
+<p>
+  <a href="https://moonbitstack.github.io/moonquic/"><b>Home</b></a> ·
+  <a href="https://moonbitstack.github.io/moonquic/guide.html">Guide</a> ·
+  <a href="https://moonbitstack.github.io/moonquic/api.html">API</a> ·
+  <a href="https://moonbitstack.github.io/moonquic/capture.html">A packet, opened</a> ·
+  <a href="https://mooncakes.io/docs/moonbitstack/moonquic">mooncakes</a>
+</p>
+
 The QUIC transport for MoonBit ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001), [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002)) — bytes in, events out. No sockets, no handshake of its own: the TLS 1.3 handshake is [`moontls`](https://github.com/moonbitstack/moontls)'s and the ciphers are [`mooncrypt`](https://github.com/moonbitstack/mooncrypt)'s.
 
 ```moonbit

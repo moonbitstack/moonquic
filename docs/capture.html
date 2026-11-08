@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capture — moonquic</title>
+<meta name="description" content="A real QUIC Initial packet, printed by this library and opened field by field: header, frames and transport parameters.">
+<meta name="theme-color" content="#f4eddf">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f4eddf'/%3E%3Cg fill='%2312181c'%3E%3Crect x='6' y='7' width='5' height='5'/%3E%3Crect x='14' y='7' width='5' height='5'/%3E%3Crect x='22' y='7' width='4' height='5'/%3E%3Crect x='6' y='19' width='5' height='5'/%3E%3Crect x='18' y='19' width='5' height='5'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+  (function () {
+    var KEY = "moonquic-theme", root = document.documentElement;
+    var entry = performance.getEntriesByType("navigation")[0];
+    try { if (entry && entry.type === "reload") sessionStorage.removeItem(KEY); } catch (e) {}
+    var value = null;
+    try { value = sessionStorage.getItem(KEY); } catch (e) {}
+    if (!value) {
+      value = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    root.dataset.theme = value;
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="shell masthead__inner">
+    <a class="brand" href="./" aria-label="moonquic, home">
+      <svg class="brand__mark" viewBox="0 0 26 32" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="25" height="31" fill="none" stroke="currentColor" stroke-width="1"></rect>
+        <g fill="currentColor">
+          <rect x="5" y="6" width="4" height="4"></rect>
+          <rect x="11" y="6" width="4" height="4"></rect>
+          <rect x="18" y="6" width="3" height="4"></rect>
+          <rect x="5" y="14" width="4" height="4"></rect>
+          <rect x="15" y="14" width="4" height="4"></rect>
+          <rect x="11" y="22" width="4" height="4"></rect>
+          <rect x="18" y="22" width="3" height="4"></rect>
+        </g>
+      </svg>
+      <span>
+        <span class="brand__word">moonquic</span>
+        <span class="brand__sub">quic transport</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="./">Home</a>
+      <a href="guide.html">Guide</a>
+      <a href="api.html">API</a>
+      <a href="capture.html" aria-current="page">Capture</a>
+    </nav>
+    <button class="iconbtn" type="button" data-theme-toggle aria-label="Switch theme" aria-pressed="false">
+      <svg class="iconbtn__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"></path>
+      </svg>
+      <svg class="iconbtn__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"></path>
+      </svg>
+    </button>
+    <a class="iconbtn" href="https://github.com/moonbitstack/moonquic" aria-label="Repository on GitHub" title="Repository on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="shell" style="padding-block:clamp(36px,5vw,60px) 0">
+    <header class="page-head" style="max-width:70ch">
+      <p class="kicker">capture · interactive</p>
+      <h1 class="display" style="font-size:clamp(38px,5.4vw,62px)">A packet, opened</h1>
+      <p class="lead" style="margin-top:16px">One client Initial as this library seals it: a 1200-byte
+        datagram with a four-byte packet number, a PING, and the padding RFC 9000 §14.1 requires. The
+        bytes below are printed by the library compiled to JavaScript for this page — nothing here is
+        a drawing of the thing.</p>
+    </header>
+
+    <div class="stagebar" role="group" aria-label="What to show" style="margin-top:28px">
+      <button type="button" data-stage="header" aria-pressed="true">01 · the header</button>
+      <button type="button" data-stage="frames" aria-pressed="false">02 · the frames</button>
+      <button type="button" data-stage="params" aria-pressed="false">03 · transport parameters</button>
+    </div>
+
+    <p class="meter" id="meter"><span>bytes <b id="m-bytes">—</b></span><span>fields <b id="m-fields">—</b></span><span id="m-what">—</span></p>
+
+    <div class="capture">
+      <div>
+        <div class="hex scroll" id="hex" aria-label="Packet bytes, sixteen to a row"></div>
+        <div class="legend-row">
+          <span><i style="background:var(--paper-3)"></i>field</span>
+          <span><i style="background:var(--zhu)"></i>selected</span>
+          <span><i style="background:var(--jin)"></i>AEAD tag</span>
+          <span><i style="background:var(--ink-3);opacity:.4"></i>padding</span>
+        </div>
+      </div>
+      <div>
+        <div class="fields" id="fields"></div>
+        <p class="note" id="note" style="margin-top:18px">Pick a byte, or a field; the other side follows.</p>
+      </div>
+    </div>
+  </div>
+
+  <section class="section" style="margin-top:clamp(40px,6vw,80px)">
+    <div class="shell">
+      <div class="section__head">
+        <div>
+          <p class="kicker">what the three views share</p>
+          <h2>One packet, three readings</h2>
+        </div>
+        <p>The header is what a router can read without keys. The frames are what the peer reads once
+          it has them. The parameters are never in a packet at all: they ride the handshake and are
+          what 0-RTT is allowed to spend.</p>
+      </div>
+      <div class="facts">
+        <article class="fact">
+          <h3>The header is public</h3>
+          <p>Form, version, both connection ids, the length and the packet number are readable by
+            anything on the path; the first byte and the number are masked, but the mask is derived
+            from the ciphertext, so removing it takes no key beyond the one the receiver already has.</p>
+        </article>
+        <article class="fact">
+          <h3>The tag is the seal</h3>
+          <p>Sixteen bytes at the end authenticate the whole packet with the header as associated
+            data. Change a bit anywhere before them and the packet does not open — which is why a
+            connection only moves for a packet that authenticated.</p>
+        </article>
+        <article class="fact">
+          <h3>The parameters outlive it</h3>
+          <p>A ticket carries the parameters it was issued under, so 0-RTT knows the credit before a
+            single byte of the handshake arrives. The block in the third view is the one this library
+            declares, encoded by <code>@conn.encode</code>.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="colophon">
+  <div class="shell colophon__row">
+    <span>moonquic · Apache-2.0</span>
+    <span><a href="./">home</a> · <a href="guide.html">guide</a> · <a href="api.html">api</a></span>
+    <span><a href="https://mooncakes.io/docs/moonbitstack/moonquic">mooncakes</a> · <a href="https://github.com/moonbitstack/moonquic">source</a></span>
+  </div>
+</footer>
+
+<script src="assets/theme.js" defer></script>
+<script type="module" src="assets/capture.js"></script>
+</body>
+</html>

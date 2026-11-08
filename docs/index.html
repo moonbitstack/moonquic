@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>moonquic — QUIC transport for MoonBit</title>
+<meta name="description" content="The QUIC transport for MoonBit: packet numbers and loss recovery, streams and flow control, 0-RTT resumption, and a packet-number space for every path. No socket, no clock.">
+<meta name="theme-color" content="#f4eddf">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23f4eddf'/%3E%3Cg fill='%2312181c'%3E%3Crect x='6' y='7' width='5' height='5'/%3E%3Crect x='14' y='7' width='5' height='5'/%3E%3Crect x='22' y='7' width='4' height='5'/%3E%3Crect x='6' y='19' width='5' height='5'/%3E%3Crect x='18' y='19' width='5' height='5'/%3E%3C/g%3E%3C/svg%3E">
+<script>
+  (function () {
+    var KEY = "moonquic-theme", root = document.documentElement;
+    var entry = performance.getEntriesByType("navigation")[0];
+    try { if (entry && entry.type === "reload") sessionStorage.removeItem(KEY); } catch (e) {}
+    var value = null;
+    try { value = sessionStorage.getItem(KEY); } catch (e) {}
+    if (!value) {
+      value = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    root.dataset.theme = value;
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="shell masthead__inner">
+    <a class="brand" href="./" aria-label="moonquic, home">
+      <svg class="brand__mark" viewBox="0 0 26 32" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="25" height="31" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+        <g fill="currentColor">
+          <rect x="5" y="6" width="4" height="4"></rect>
+          <rect x="11" y="6" width="4" height="4"></rect>
+          <rect x="18" y="6" width="3" height="4"></rect>
+          <rect x="5" y="14" width="4" height="4"></rect>
+          <rect x="15" y="14" width="4" height="4"></rect>
+          <rect x="11" y="22" width="4" height="4"></rect>
+          <rect x="18" y="22" width="3" height="4"></rect>
+        </g>
+      </svg>
+      <span>
+        <span class="brand__word">moonquic</span>
+        <span class="brand__sub">quic transport</span>
+      </span>
+    </a>
+    <nav class="nav" aria-label="Sections">
+      <a href="./" aria-current="page">Home</a>
+      <a href="guide.html">Guide</a>
+      <a href="api.html">API</a>
+      <a href="capture.html">Capture</a>
+    </nav>
+    <button class="iconbtn" type="button" data-theme-toggle aria-label="Switch theme" aria-pressed="false">
+      <svg class="iconbtn__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2"></circle>
+        <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"></path>
+      </svg>
+      <svg class="iconbtn__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z"></path>
+      </svg>
+    </button>
+    <a class="iconbtn" href="https://github.com/moonbitstack/moonquic" aria-label="Repository on GitHub" title="Repository on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </a>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="shell hero__grid">
+      <div>
+        <p class="kicker">rfc 9000 · 9001 · 9002 · multipath</p>
+        <h1 class="display">QUIC, on the wire,<br>with nothing else.</h1>
+        <p class="lead">A transport in which every packet is a field list you can point at, every path
+          numbers its own packets, and a resumed connection spends what its ticket remembered. No
+          socket, no clock, no TLS of its own: hand it a datagram and the time.</p>
+        <div class="hero__actions">
+          <a class="btn btn--solid" href="guide.html">Read the guide</a>
+          <a class="btn" href="capture.html">Open a packet</a>
+        </div>
+      </div>
+      <figure class="cardframe" style="margin:0">
+        <canvas id="card" aria-label="A QUIC Initial packet drawn as a punched card: each byte is eight holes"></canvas>
+        <figcaption class="cardframe__cap">
+          <span id="card-caption">Initial packet</span>
+          <span>16 bytes a row · 8 bits a column</span>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shell">
+      <div class="section__head">
+        <div>
+          <p class="kicker">three decisions</p>
+          <h2>What this library keeps,<br>and what it leaves to you</h2>
+        </div>
+        <p>The transport is complete: handshake state, loss recovery, streams, flow control, 0-RTT and
+          multipath. What it does not have is an opinion about where the bytes come from.</p>
+      </div>
+
+      <div class="facts">
+        <article class="fact">
+          <svg viewBox="0 0 220 92" role="img" aria-label="Two endpoints with a datagram between them and no socket inside">
+            <rect x="10" y="26" width="52" height="40" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+            <rect x="158" y="26" width="52" height="40" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+            <path d="M66 40h88" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4"></path>
+            <path d="M154 58H66" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4"></path>
+            <path d="M148 40l6 0m-4-3l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.2"></path>
+            <path d="M72 58l-6 0m4-3l-4 3 4 3" fill="none" stroke="currentColor" stroke-width="1.2"></path>
+            <rect x="98" y="34" width="24" height="12" fill="currentColor" opacity="0.9"></rect>
+            <rect x="98" y="52" width="24" height="12" fill="none" stroke="currentColor" stroke-width="1.1"></rect>
+          </svg>
+          <h3>Bytes in, events out</h3>
+          <p>No socket, no runtime, no thread. The peer's address is a type parameter and every entry
+            point takes <code>now</code> in microseconds, so a UDP loop, a proxy or a test harness is
+            yours to write — and the transport does not change shape inside any of them.</p>
+        </article>
+
+        <article class="fact">
+          <svg viewBox="0 0 220 92" role="img" aria-label="Three lanes with independent packet numbers, one of them broken">
+            <g stroke="currentColor" stroke-width="0.7" fill="none">
+              <path d="M10 24h200"></path>
+              <path d="M10 46h110" stroke-width="2.2"></path>
+              <path d="M126 46h84" stroke-width="2.2" stroke-dasharray="4 4"></path>
+              <path d="M10 68h200"></path>
+            </g>
+            <circle cx="118" cy="46" r="4" fill="none" stroke="currentColor" stroke-width="1.3"></circle>
+            <g fill="currentColor">
+              <rect x="24" y="20" width="3" height="8"></rect>
+              <rect x="62" y="20" width="3" height="8"></rect>
+              <rect x="100" y="20" width="3" height="8"></rect>
+              <rect x="24" y="42" width="3" height="8"></rect>
+              <rect x="62" y="42" width="3" height="8"></rect>
+              <rect x="146" y="42" width="3" height="8"></rect>
+              <rect x="24" y="64" width="3" height="8"></rect>
+              <rect x="62" y="64" width="3" height="8"></rect>
+              <rect x="100" y="64" width="3" height="8"></rect>
+            </g>
+          </svg>
+          <h3>A number space per path</h3>
+          <p>Multipath, second stage: each path after the handshake's has its own packet numbers,
+            its own round-trip estimate, congestion window and PATH_ACK — and a nonce that names the
+            path, so two paths never kindle the same key stream.</p>
+        </article>
+
+        <article class="fact">
+          <svg viewBox="0 0 220 92" role="img" aria-label="A ticket carrying transport parameters forward">
+            <rect x="14" y="26" width="66" height="42" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+            <g fill="currentColor">
+              <rect x="22" y="34" width="6" height="6"></rect>
+              <rect x="36" y="34" width="6" height="6"></rect>
+              <rect x="22" y="48" width="6" height="6"></rect>
+              <rect x="52" y="48" width="6" height="6"></rect>
+            </g>
+            <path d="M86 47h44" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4"></path>
+            <path d="M124 47l6 0m-4-3l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.2"></path>
+            <rect x="136" y="26" width="66" height="42" fill="none" stroke="currentColor" stroke-width="1.2"></rect>
+            <g fill="currentColor">
+              <rect x="144" y="34" width="6" height="6"></rect>
+              <rect x="158" y="34" width="6" height="6"></rect>
+              <rect x="172" y="34" width="6" height="6"></rect>
+              <rect x="144" y="48" width="6" height="6"></rect>
+            </g>
+            <path d="M14 12h188" stroke="currentColor" stroke-width="1.2"></path>
+          </svg>
+          <h3>0-RTT from the ticket</h3>
+          <p>A ticket is kept with the transport parameters it was issued under, so the next
+            connection knows exactly what early data may spend. RFC 9000 §7.4.1 forbids guessing it;
+            <code>Config</code>'s two fields overrule the remembered values rather than replacing them.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shell">
+      <div class="section__head">
+        <div>
+          <p class="kicker">the showcase</p>
+          <h2>Every field, in its place</h2>
+        </div>
+        <p>A real Initial packet, sealed by this library and printed by it: the header field by field,
+          the frames it carries, and the transport parameters a handshake puts beside them.</p>
+      </div>
+      <div class="cardframe" style="padding:0;border-color:var(--rule)">
+        <pre class="scroll" id="teaser" style="border:0;margin:0;padding:22px 20px;background:var(--paper)"><code>the first bytes of the packet, printed by the library — this line is replaced in the browser</code></pre>
+      </div>
+      <p style="margin-top:18px"><a class="btn" href="capture.html">Open it field by field</a></p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shell">
+      <div class="section__head">
+        <div>
+          <p class="kicker">packages</p>
+          <h2>Six packages, one transport</h2>
+        </div>
+        <p>Two of them are pure codecs over <code>moonvar/quic</code>, so a tool that only reads
+          packets off a capture links nothing else.</p>
+      </div>
+      <div class="tbl-wrap scroll">
+        <table>
+          <thead>
+            <tr><th style="width:14ch">Package</th><th>What it covers</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>frame</code></td><td>RFC 9000 §19 in full, the ACK range encoding both ways, RFC 9221 datagrams, and the multipath frames with their own type codes.</td></tr>
+            <tr><td><code>packet</code></td><td>Long and short headers, Retry, version negotiation, packet numbers and the three spaces.</td></tr>
+            <tr><td><code>crypto</code></td><td>Packet and header protection, the Retry tag, key update, and the path-and-packet-number nonce multipath needs.</td></tr>
+            <tr><td><code>recovery</code></td><td>Round-trip estimate, both loss thresholds, probe timeout, NewReno, CUBIC and BBR behind one trait, persistent congestion, pacing.</td></tr>
+            <tr><td><code>stream</code></td><td>Stream ids and reassembly, both state machines, flow control, the stream quota, a round-robin scheduler.</td></tr>
+            <tr><td><code>conn</code></td><td>Transport parameters, the handshakes, the connection table and event loop, migration, stateless reset, 0-RTT, and multipath.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shell">
+      <div class="section__head">
+        <div>
+          <p class="kicker">boundaries</p>
+          <h2>What is not here</h2>
+        </div>
+        <p>Three things were left out on purpose, and each has a home in the same family.</p>
+      </div>
+      <div class="prose">
+        <p><strong>Sockets and clocks.</strong> A transport that reads the time itself cannot be
+          tested against a loss pattern, and one that owns a socket cannot be embedded. Datagram I/O
+          is <code>moonnet</code>'s; this library is pure enough to run inside a browser tab, which is
+          how the packet on this page was printed.</p>
+        <p><strong>The TLS handshake.</strong> <code>moontls</code>'s, whose key schedule RFC 9001 §5.2
+          reuses verbatim. What arrives here is a key step and a byte stream to feed; a signing key
+          never enters this library.</p>
+        <p><strong>HTTP/3 and QPACK.</strong> Those are <code>moonhttp</code>'s, because HTTP/3 is a
+          version of HTTP and QPACK is to it what HPACK is to HTTP/2. This library moves streams and
+          datagrams; what a stream means is above it.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="colophon">
+  <div class="shell colophon__row">
+    <span>moonquic · Apache-2.0 · <span data-stat="version">0.0.0</span></span>
+    <span><a href="guide.html">guide</a> · <a href="api.html">api</a> · <a href="capture.html">capture</a></span>
+    <span><a href="https://mooncakes.io/docs/moonbitstack/moonquic">mooncakes</a> · <a href="https://github.com/moonbitstack/moonquic">source</a></span>
+  </div>
+</footer>
+
+<script src="assets/theme.js" defer></script>
+<script type="module" src="assets/punch.js"></script>
+<script src="assets/stats.js" defer></script>
+<script type="module">
+  import { initial } from "./engine/moonquic.js";
+  const hex = JSON.parse(initial()).hex;
+  const rows = [];
+  for (let at = 0; at < 48; at += 16) {
+    const bytes = hex.slice(at * 2, (at + 16) * 2).match(/.{2}/g).join(" ");
+    rows.push(String(at).padStart(4, "0") + "  " + bytes);
+  }
+  rows.push("       … " + (hex.length / 2 - 48) + " more bytes, the last 16 an AEAD tag");
+  document.getElementById("teaser").firstElementChild.textContent = rows.join("\n");
+</script>
+</body>
+</html>
