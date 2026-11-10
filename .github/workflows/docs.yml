@@ -37,13 +37,17 @@ jobs:
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
       # The page prints a real packet, so the library is compiled for the browser here rather than
-      # checked in: docs/engine/ is in .gitignore, and the pages import what this step leaves.
+      # checked in: docs/engine/ is in .gitignore, and the pages import what this step leaves. The
+      # build's own directory naming is its business — a workspace nests it under the module — so
+      # the file is found rather than assumed.
       - name: build the engine for the page
         run: |
           moon update
           moon build --target js --release src/examples/browser
           mkdir -p docs/engine
-          cp _build/js/release/build/examples/browser/browser.js docs/engine/moonquic.js
+          engine="$(find _build/js/release -name browser.js -path '*examples/browser*' | head -1)"
+          test -n "$engine"
+          cp "$engine" docs/engine/moonquic.js
 
       - name: the reference is up to date
         run: |
