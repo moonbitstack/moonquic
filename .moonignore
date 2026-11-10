@@ -4,3 +4,4 @@
 .git/
 _build/
 target/
+integration/

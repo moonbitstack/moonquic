@@ -1,0 +1,20 @@
+// A QUIC client over UDP, for the scripts under `scripts/quic/` to drive against another
+// implementation. Datagram sockets exist on the native backend only, so this package does too.
+pkgtype(kind: "executable")
+
+supported_targets = "native"
+
+import {
+  "moonbitstack/moonquic/conn",
+  "moonbitstack/moonquic/frame",
+  "moonbitstack/moonvar/quic",
+  "moonbitstack/moonnet/udp",
+  "moonbitstack/moontls/tls",
+  "moonbitstack/mooncred/x509",
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/socket",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/string",
+}
