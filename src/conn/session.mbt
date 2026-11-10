@@ -753,7 +753,18 @@ fn[A] Session::admit(
       self.close(fault.code, fault.reason, now)
       false
     }
-    None => true
+    None =>
+      // A PATH_ACK is judged against the path it names, not the path its packet came in on.
+      match
+        path_ack_fault(frames, p => {
+          self.core.conn.space_on(p, Level::Application).issued()
+        }) {
+        Some(fault) => {
+          self.close(fault.code, fault.reason, now)
+          false
+        }
+        None => true
+      }
   }
 }
 

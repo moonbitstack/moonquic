@@ -709,6 +709,14 @@ pub fn Client::recv_on(
         Some(fault) => return self.close(fault.code, fault.reason, now)
         None => ()
       }
+      // A PATH_ACK is judged against the path it names, not the path its packet came in on.
+      match
+        path_ack_fault(frames, p => {
+          self.core.space_on(p, Level::Application).issued()
+        }) {
+        Some(fault) => return self.close(fault.code, fault.reason, now)
+        None => ()
+      }
       space.on_packet_received(pn, @packet.payload_elicits_ack(frames))
       self.on_app_frames(frames, now, path~)
       break

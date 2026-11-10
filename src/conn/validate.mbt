@@ -91,9 +91,7 @@ fn frame_fault(
   }
   match frame {
     Ack(largest~, first_range~, ranges~, ..)
-    | AckEcn(largest~, first_range~, ranges~, ..)
-    | PathAck(largest~, first_range~, ranges~, ..)
-    | PathAckEcn(largest~, first_range~, ranges~, ..) => {
+    | AckEcn(largest~, first_range~, ranges~, ..) => {
       // RFC 9000 §19.3.1: a range that would start below packet number 0 is a frame this
       // endpoint cannot have written. `Seen::read` raises for exactly those.
       let _ = @frame.Seen::read(largest, first_range, ranges) catch {
@@ -109,6 +107,21 @@ fn frame_fault(
           code: protocol_violation,
           reason: b"acknowledged a packet never sent",
         })
+      }
+      None
+    }
+    // A PATH_ACK is about the path it names, which is not always the path its packet arrived on
+    // (draft-ietf-quic-multipath §4.1), so whether the numbers were ever sent is the caller's: it
+    // is the one that knows each path's space. The range it cannot start below is checked here.
+    PathAck(path_id~, largest~, first_range~, ranges~, ..)
+    | PathAckEcn(path_id~, largest~, first_range~, ranges~, ..) => {
+      let _ = path_id
+      let _ = @frame.Seen::read(largest, first_range, ranges) catch {
+        _ =>
+          return Some({
+            code: frame_encoding_error,
+            reason: b"an acknowledgement range below packet 0",
+          })
       }
       None
     }
@@ -291,6 +304,29 @@ fn frames_fault(
   for frame in frames {
     if frame_fault(level, frame, standing) is Some(fault) {
       return Some(fault)
+    }
+  }
+  None
+}
+
+///|
+/// The first PATH_ACK among a packet's frames that names a number the path it is about never
+/// sent (RFC 9000 §13.1, draft-ietf-quic-multipath §4.1). `sent_on` answers how far that path's
+/// packet-number space has been used, which only the connection can say.
+fn path_ack_fault(
+  frames : Array[@frame.Frame],
+  sent_on : (UInt64) -> Int64,
+) -> Fault? {
+  for frame in frames {
+    match frame {
+      PathAck(path_id~, largest~, ..) | PathAckEcn(path_id~, largest~, ..) =>
+        if largest.reinterpret_as_int64() >= sent_on(path_id) {
+          return Some({
+            code: protocol_violation,
+            reason: b"acknowledged a packet never sent",
+          })
+        }
+      _ => ()
     }
   }
   None

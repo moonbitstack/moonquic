@@ -180,6 +180,23 @@ test "a peer's connection id for a further path reaches a connection, and that p
 }
 
 ///|
+test "a PATH_ACK is judged against the path it names, not the path that carried it" {
+  let (client, _, conn) = multi_ready()
+  // Path 1 has issued nothing, while path 0 has carried the handshake and more. A PATH_ACK for
+  // path 1 that arrives on path 0 therefore names a packet path 1 never sent, and that is a
+  // protocol violation whatever path 0 has done (RFC 9000 §13.1).
+  let packet = send_short(
+    client.scid,
+    2000L,
+    4,
+    [PathAck(path_id=1UL, largest=0UL, delay=0UL, first_range=0UL, ranges=[])],
+    conn.app_tx.unwrap(),
+  )
+  client.recv(packet, 3000L)
+  assert_eq(client.phase(), Closing)
+}
+
+///|
 test "a path a client opens is proven by the answer to the challenge it sent" {
   let (client, _, conn) = multi_ready()
   let peer_cid = b"\xc1\xc1\xc1\xc1"
