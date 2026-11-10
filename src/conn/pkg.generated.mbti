@@ -140,6 +140,7 @@ pub fn Client::install_zero_rtt(Self, @crypto.Keys) -> Unit
 pub fn Client::is_connected(Self) -> Bool
 pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config, resumption? : Remembered) -> Self raise
 pub fn Client::next_cid(Self) -> Bool
+pub fn Client::open_stream(Self, UInt64) -> Bool
 pub fn Client::open_uni(Self) -> UInt64
 pub fn Client::path_lane(Self, UInt64) -> Lane[Unit]?
 pub fn Client::paths(Self) -> Paths

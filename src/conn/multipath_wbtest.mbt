@@ -226,3 +226,34 @@ test "a path a client opens is proven by the answer to the challenge it sent" {
   client.recv_on(1UL, packet, 2500L)
   assert_true(client.paths().validated(1UL))
 }
+
+///|
+test "a stream this end opened takes the peer's answer, and one it did not is refused" {
+  let peer_stream = () => {
+    [@frame.Stream(id=4UL, offset=0UL, fin=true, data=b"answer")]
+  }
+  // A bidirectional stream this end only wrote on is not open for the peer to answer yet.
+  let (client, _, conn) = multi_ready()
+  let packet = send_short(
+    client.scid,
+    1200L,
+    4,
+    peer_stream(),
+    conn.app_tx.unwrap(),
+  )
+  client.recv(packet, 3000L)
+  assert_eq(client.phase(), Closing)
+  // Opening it first is what makes the answer allowed (RFC 9000 §19.8).
+  let (client, _, conn) = multi_ready()
+  assert_true(client.open_stream(4UL))
+  let packet = send_short(
+    client.scid,
+    1200L,
+    4,
+    peer_stream(),
+    conn.app_tx.unwrap(),
+  )
+  client.recv(packet, 3000L)
+  assert_eq(client.phase(), Active)
+  assert_eq(client.read(4UL), b"answer")
+}

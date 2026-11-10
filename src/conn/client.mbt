@@ -1160,6 +1160,21 @@ fn Client::on_app_frames(
 }
 
 ///|
+/// Open a bidirectional stream this end initiates, without putting anything on it. A caller that
+/// places a stream's frames on a path of its own choosing — `send_on` — has to say the stream
+/// exists first: RFC 9000 §19.8 lets a peer answer only on a bidirectional stream this end opened,
+/// and the send loop's record of having opened it is what that turns on. Answers false for a stream
+/// this end may not initiate, which is a unidirectional one or the peer's own.
+pub fn Client::open_stream(self : Client, id : UInt64) -> Bool {
+  guard self.phase == Active else { return false }
+  guard @stream.is_local(id, server=false) && @stream.is_bidi(id) else {
+    return false
+  }
+  self.sender.sched.queue(id, 0UL)
+  true
+}
+
+///|
 /// Queue `data` on stream `id`, ending it after the data when `fin`. Before the handshake
 /// finishes, data queued here leaves in 0-RTT packets when a ticket brought early keys, and the
 /// send loop carries it over to 1-RTT if the server refuses them (RFC 9000 §4.6.2).
