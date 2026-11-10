@@ -102,5 +102,9 @@ Rules that catch people out:
   paths are addresses, so `Endpoint::add_path` and `poll_out` handle it.
 - **A path is identified by its connection id**, not by its address: `Endpoint::add_path` makes the id
   for you, and a packet that names a path's id belongs to that path's packet numbers.
+- **The peer's id for a path arrives before the path exists.** A `PATH_NEW_CONNECTION_ID` for an id
+  the peer said it would accept creates the path, so `paths().peer_cid(n)` is what `add_path` is
+  given. A stream whose frames you place on a path yourself needs `open_stream` first: RFC 9000
+  §19.8 lets the peer answer only on a bidirectional stream this end opened.
 - **Nothing is retransmitted by the caller.** `poll_out`, `poll_lane` and `poll_paths` hand back what
   a lost packet carried once the timers say so; keep calling `tick`.

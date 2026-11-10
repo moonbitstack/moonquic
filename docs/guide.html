@@ -180,6 +180,23 @@ assert_true(keys.nonce_at(1UL, 54321L) != keys.nonce(54321L))</code></pre>
         they belong on; <code>Endpoint::add_path</code> makes the connection id the path answers to. On
         a client the caller owns the sockets, so it says which path a datagram arrived on
         (<code>recv_on</code>) and gets the path id back with what to send (<code>poll_paths</code>).</p>
+      <p>A path is opened on the connection id the peer gives for it, and that id arrives before
+        anything has been sent on the path — it is what the path is for. A
+        <code>PATH_NEW_CONNECTION_ID</code> therefore creates the path it names, which is why
+        <code>paths().peer_cid(1)</code> answers with something to address before
+        <code>add_path</code> has been called. A caller that puts a stream's frames on a path itself
+        says the stream exists first: RFC 9000 §19.8 lets the peer answer only on a bidirectional
+        stream this end opened, and <code>Client::open_stream</code> is that record without any bytes
+        queued for the library's own send loop.</p>
+<p class="sketchlabel">The shape of it — not compileable on its own</p>
+<pre class="scroll"><code>ignore(client.open_stream(4UL))      // a stream this end initiates, nothing on it yet
+ignore(                              // the request, placed on path 1 by the caller
+  client.send_on(
+    1UL,
+    [@frame.Stream(id=4UL, offset=0UL, fin=true, data=b"GET /\r\n")],
+    now,
+  ),
+)</code></pre>
 
       <h2 id="resume">Resume a connection</h2>
       <p>0-RTT is only safe if the client knows what the last connection left it: RFC 9000 §7.4.1

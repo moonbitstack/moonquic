@@ -195,6 +195,7 @@ let client = endpoint.client(id).unwrap()
 | `Endpoint::add_path`, `Session::add_path` | opening a second path, with a connection id the endpoint makes |
 | `Session::send_on`, `poll_lane`, `path_lane` | a packet on a named path, the datagrams that path has ready, its state |
 | `Client::add_path`, `send_on`, `recv_on`, `poll_paths` | the same for a client, whose caller owns the sockets and says which path a datagram came in on |
+| `Client::open_stream` | says a stream this end initiates exists, for a caller that puts its frames on a path itself |
 | `Lane` | one path's packet numbers, congestion window, pacing, and what its packets carried |
 
 A path's state is state, and nothing here needs a socket to try:
@@ -238,6 +239,34 @@ assert_eq(@frame.encode(ack).length(), 4)
 ```
 
 What the draft leaves open — which path carries which byte, when a backup path becomes the one to use — is the caller's: `send_on` puts frames on the path it is told, `poll_lane` hands back the datagrams that path has ready with the address they belong on, and `Lane` reports the window and the outstanding count for a scheduler to work from.
+
+A path is opened on the connection id the peer gives for it, and the peer gives it before anything has been sent: a PATH_NEW_CONNECTION_ID for a path with no state yet creates that path, which is what makes `paths().peer_cid(1)` answer at all. A caller that then puts a stream's frames on the path itself says the stream exists first, because RFC 9000 §19.8 lets the peer answer only on a bidirectional stream this end opened:
+
+```moonbit
+let scid : Bytes = b"\x01\x02\x03\x04\x05\x06\x07\x08"
+let params = @conn.Limits::new(idle_timeout=30_000_000UL, streams_bidi=8UL).params()
+params.push({ kind: @conn.Kind::InitialScid, value: scid, })
+let client = @conn.Client::new(
+  @tls.Client::new(@x509.Roots::new(), alpn=["h3"]),
+  "a.example",
+  @conn.encode(params[:]),
+  n => Bytes::make(n, b'\x00'),
+  b"\x08\x07\x06\x05\x04\x03\x02\x01",
+  scid,
+  0L,
+) catch {
+  _ => abort("the client did not start")
+}
+// Once the handshake is done, the request goes on stream 4, on whichever path the caller chooses.
+ignore(client.open_stream(4UL))
+ignore(
+  client.send_on(
+    1UL,
+    [@frame.Stream(id=4UL, offset=0UL, fin=true, data=b"GET /\r\n")],
+    0L,
+  ),
+)
+```
 
 ## Datagrams
 
@@ -334,7 +363,16 @@ The gate is `moon clean` → `moon fmt` → `moon check --target all --deny-warn
 
 `scripts/quic/check_interop.py --host <host> --port <port>` is the other half: an aioquic client completes a handshake, sends a stream and checks the echo, then repeats it through a proxy that drops one datagram in five, so recovery and pacing are exercised by a peer that is not this library's own. A server in Retry mode is covered by the same run.
 
-`scripts/quic/check_h3spec.sh <host> <port>` downloads that pinned release and runs the section against a server. It is a client, so it needs a server on the other end: this library has no socket, and the harness that binds one is the server repository's.
+The connection itself is exercised over real datagrams by the peer in `integration/`: a client that binds its socket, drives the handshake from a loop, and prints one fact per line, so a script can check what another implementation made of it. Two runs use it, and both are against a peer that is not this library:
+
+| run | peer | what it checks | result |
+|:--|:--|:--|:--|
+| `scripts/quic/check_aioquic_early_data.py` | aioquic 1.3.0 | a resumed connection writes before its handshake, with neither `Config` credit field set, and the peer reads those bytes **before its handshake completes** | passes: one 0-RTT datagram of 67 bytes, `early_accepted true`, the peer's first read recorded ahead of its own handshake |
+| `scripts/quic/check_picoquic_multipath.py` | picoquic `7fa9c85` | a second path is opened from a second socket against the connection id the peer offers, challenged and validated, and then carries a request of its own | passes: both paths answer the same file, a PATH_ACK naming path 1 is in the peer's log in both directions, and the path's flight settles to zero |
+
+The first run is the one that says what the ticket remembered is enough: the client sets no `zero_rtt_data` or `zero_rtt_stream_data`, so the credit its early bytes spend is the previous connection's, and aioquic accepting them is the proof that the block travelled with the ticket. The second is the one that says a path's connection id is what opens it — the id arrives before there is a path to put it on, and the path keeps its own packet numbers, its own acknowledgement and its own recovery from there.
+
+`scripts/quic/check_h3spec.sh <host> <port>` downloads that pinned release and runs the section against a server. It is a client, so it needs a server on the other end: `integration/` holds a client, and a server built on this library is another repository's.
 
 Run against a server built on this library, all 43 examples pass. One of them, CRYPTO in 0-RTT, the tool skips of its own accord when the server issues no ticket; with tickets on it runs and is the one case that does not close as it expects, because the client resends the injected fragment at 1-RTT and is answered with `CRYPTO_ERROR` rather than `PROTOCOL_VIOLATION`.
 
