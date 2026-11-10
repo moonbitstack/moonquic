@@ -1092,6 +1092,29 @@ fn Client::on_app_frames(
       ResetStream(id~, error_code~, ..) =>
         self.events.push(Reset(id, error_code))
       StopSending(id~, error_code~) => self.events.push(Stopped(id, error_code))
+      // The peer's side of the path bookkeeping (draft-ietf-quic-multipath §3, §4): the id to
+      // address a further path by, the room it offers for more paths, and its word on each one.
+      // They arrive before anything has been sent on the path they name, which is what they are
+      // for — a path is opened on the id the peer gives for it, not the other way round.
+      PathNewConnectionId(path_id~, seq~, conn_id~, ..) =>
+        if path_id > self.paths.local_max() {
+          return self.close(protocol_violation, b"a path never agreed", now)
+        } else {
+          ignore(self.paths.on_peer_cid(path_id, seq, conn_id))
+        }
+      PathRetireConnectionId(path_id~, seq~) =>
+        ignore(self.paths.retire_peer_cid(path_id, seq))
+      PathStatus(path_id~, seq~, available~) =>
+        if path_id > self.paths.local_max() {
+          return self.close(protocol_violation, b"a path never agreed", now)
+        } else {
+          ignore(self.paths.on_status(path_id, seq, available))
+        }
+      PathAbandon(path_id~, ..) => ignore(self.paths.abandon(path_id))
+      MaxPathId(max~) => self.paths.on_max_path_id(max)
+      // §4.7: a report that the peer has no more connection ids for a path, which this end acts
+      // on by issuing one; nothing is owed back.
+      PathCidsBlocked(..) => ()
       // A challenge is answered on the path it came from, and a path is proven once its own
       // challenge comes back unchanged (draft-ietf-quic-multipath §3.1).
       PathChallenge(data) =>
@@ -1356,6 +1379,9 @@ pub fn Client::add_path(
   }
   self.paths.bind(path, dcid)
   ignore(self.paths.bind_local(path, lcid))
+  // The challenge is what proves the path, so it is remembered before the packet that carries it:
+  // the answer is checked against what was sent, not against what can be recalled later.
+  ignore(self.paths.start(path, nonce))
   self.sender.queue_control(
     PathNewConnectionId(
       path_id=path,

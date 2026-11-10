@@ -307,13 +307,39 @@ pub fn Paths::prove(self : Paths, id : UInt64, data : Bytes) -> Bool {
 /// Take a connection id the peer offered for `id` (draft-ietf-quic-multipath §4.4), which is what
 /// this end addresses that path by from now on. An older sequence number than the one in use is a
 /// reordering, not news.
+///
+/// The peer issues the id for a path before anything has been sent on it — that is what the id is
+/// for — so a path with no state yet is opened here rather than refused. Without that, a peer that
+/// offers its paths on its own initiative, which is what the draft's own example does, leaves the
+/// other end unable to open any of them.
 pub fn Paths::on_peer_cid(
   self : Paths,
   id : UInt64,
   seq : UInt64,
   cid : Bytes,
 ) -> Bool {
-  guard self.paths.get(id) is Some(path) else { return false }
+  guard cid.length() > 0 && id <= self.peer_max && id <= self.local_max else {
+    return false
+  }
+  let path = match self.paths.get(id) {
+    Some(path) => path
+    None => {
+      let path : PathState = {
+        id,
+        dcid: b"",
+        lcid: b"",
+        validated: false,
+        challenge: b"",
+        available: true,
+        peer_seq: 0UL,
+        heard: 0UL,
+        sent: 0UL,
+        abandoned: false,
+      }
+      self.paths[id] = path
+      path
+    }
+  }
   if seq < path.peer_seq {
     return false
   }

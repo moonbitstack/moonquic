@@ -131,3 +131,81 @@ test "abandoning path 0 closes the connection" {
   )
   assert_eq(closed_with(conn), protocol_violation)
 }
+
+///|
+test "a connection id the peer offers for a path opens that path, before anything is sent on it" {
+  let paths = Paths::new(local_max=1UL)
+  // The peer has said it will maintain one path beyond the handshake's.
+  paths.on_max_path_id(1UL)
+  // Nothing is known about path 1 yet: no address, no local id, no challenge.
+  assert_true(paths.get(1UL) is None)
+  // The peer's PATH_NEW_CONNECTION_ID is what makes it openable.
+  assert_true(paths.on_peer_cid(1UL, 0UL, b"\x01\x02\x03\x04"))
+  assert_eq(paths.peer_cid(1UL), b"\x01\x02\x03\x04")
+  assert_eq(paths.count(), 2)
+  // A later id for the same path takes over, and an older one is a reordering.
+  assert_true(paths.on_peer_cid(1UL, 1UL, b"\x05\x05\x05\x05"))
+  assert_eq(paths.peer_cid(1UL), b"\x05\x05\x05\x05")
+  assert_false(paths.on_peer_cid(1UL, 0UL, b"\x01\x02\x03\x04"))
+  assert_eq(paths.peer_cid(1UL), b"\x05\x05\x05\x05")
+  // A path neither end offered is still refused.
+  assert_false(paths.on_peer_cid(2UL, 0UL, b"\x06\x06\x06\x06"))
+  assert_false(paths.on_peer_cid(1UL, 2UL, b""))
+}
+
+///|
+test "a peer's connection id for a further path reaches a connection, and that path opens on it" {
+  let (client, _, conn) = multi_ready()
+  let peer_cid = b"\x77\x66\x55\x44\x33\x22\x11\x00"
+  // What a peer does after the handshake: name the further path, and the id to use on it.
+  let packet = send_short(
+    client.scid,
+    1000L,
+    4,
+    [
+      PathNewConnectionId(
+        path_id=1UL,
+        seq=0UL,
+        retire_prior_to=0UL,
+        conn_id=peer_cid,
+        reset_token=Bytes::make(16, b'\x09'),
+      ),
+    ],
+    conn.app_tx.unwrap(),
+  )
+  client.recv(packet, 2000L)
+  // The path did not exist before the frame; the id it named is now what the path is addressed by.
+  assert_eq(client.paths().peer_cid(1UL), peer_cid)
+  assert_true(client.paths().openable(1UL))
+}
+
+///|
+test "a path a client opens is proven by the answer to the challenge it sent" {
+  let (client, _, conn) = multi_ready()
+  let peer_cid = b"\xc1\xc1\xc1\xc1"
+  // A short header is read with the length of this end's own id, so the path's id is that long.
+  let own_cid = b"\x5d\x5d\x5d\x5d"
+  let nonce : Bytes = b"\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11"
+  assert_true(
+    client.add_path(
+      1UL,
+      peer_cid,
+      own_cid,
+      2000L,
+      nonce~,
+      token=Bytes::make(16, b'\x02'),
+    ),
+  )
+  // The peer answers the challenge on the path itself, addressing this end by the id it gave.
+  // The path is part of the nonce (draft §2.4), so the answer is protected as path 1's.
+  let packet = send_short(
+    own_cid,
+    0L,
+    4,
+    [PathResponse(nonce)],
+    conn.app_tx.unwrap(),
+    path=1UL,
+  )
+  client.recv_on(1UL, packet, 2500L)
+  assert_true(client.paths().validated(1UL))
+}
