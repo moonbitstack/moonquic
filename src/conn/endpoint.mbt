@@ -108,7 +108,14 @@ fn[A] Endpoint::open(
 ) -> Session[A]? {
   match self.tls {
     None => {
-      let c = Session::new(from, h.dcid, h.scid, self.cfg, now)
+      let c = Session::new(
+        from,
+        h.dcid,
+        h.scid,
+        self.cfg,
+        now,
+        version=h.version,
+      )
       self.conns[h.dcid] = c
       Some(c)
     }
@@ -130,6 +137,7 @@ fn[A] Endpoint::open(
           cid,
           reset_token(self.reset_key, cid),
           retry~,
+          version=h.version,
         ),
         rand=self.rand,
         now?=wall,
@@ -143,6 +151,7 @@ fn[A] Endpoint::open(
         original~,
         initial=h.dcid,
         tls~,
+        version=h.version,
       )
       self.conns[cid] = c
       self.aliases[original] = cid
@@ -167,7 +176,7 @@ fn[A] Endpoint::retry_client(
   let out : @packet.Long = {
     packet_type: @packet.Kind::Retry,
     type_specific: 0,
-    version: self.cfg.version,
+    version: h.version,
     dcid: h.scid,
     scid,
   }
@@ -230,13 +239,28 @@ pub fn[A : Eq] Endpoint::recv(
   guard datagram.length() > 0 else { return }
   let conn = match @packet.read_long(datagram[:]) {
     Some((h, at)) => {
-      if h.version != self.cfg.version {
-        return self.negotiate(h, from, datagram.length())
+      // Version zero marks a Version Negotiation packet, which a client never sends and a server
+      // never answers (RFC 9000 §6.1).
+      if h.version == 0U {
+        return
       }
       match self.find(h.dcid) {
-        Some(c) => c
+        Some(c) => {
+          // A connection speaks the version it answered in; a packet naming another is not its
+          // traffic (RFC 9368 §4.1).
+          if h.version != c.version {
+            return
+          }
+          c
+        }
         None => {
           guard h.packet_type is @packet.Kind::Initial else { return }
+          // A version this server has no constants for, or does not offer, is answered with the
+          // list of the ones it does (RFC 9000 §6.1).
+          if @crypto.Version::of(h.version) is None ||
+            !self.cfg.versions.contains(h.version) {
+            return self.negotiate(h, from, datagram.length())
+          }
           let token = match @packet.read_tail(h, datagram[:], at) {
             Some(tail) => tail.token
             None => b""
@@ -328,7 +352,7 @@ fn[A] Endpoint::negotiate(
 ) -> Unit {
   guard size >= min_datagram && h.version != 0U else { return }
   self.stateless.push(
-    (@packet.versions(dcid=h.scid, scid=h.dcid, [self.cfg.version][:]), from),
+    (@packet.versions(dcid=h.scid, scid=h.dcid, self.cfg.versions[:]), from),
   )
 }
 

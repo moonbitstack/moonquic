@@ -13,8 +13,12 @@
 /// A QUIC server connection mid-handshake: the Initial keys, the packet-number/CRYPTO
 /// bookkeeping, and the TLS handshake it is driving.
 pub struct Server {
+  /// The id the Initial keys derive from, kept so a version change can re-derive them.
+  dcid : Bytes
+  /// The version this endpoint's Initial packets are protected under (RFC 9369 §3.3).
+  mut version : UInt32
   initial_keys : @crypto.Keys
-  reply_keys : @crypto.Keys
+  mut reply_keys : @crypto.Keys
   handshake : @hs.Handshake
   conn : Conn
 }
@@ -22,14 +26,36 @@ pub struct Server {
 ///|
 /// A server connection for a client whose Destination Connection ID is `dcid` (the
 /// Initial secret and keys derive from it, RFC 9001 §5.2).
-pub fn Server::new(dcid : Bytes) -> Server {
-  let (client, server) = @crypto.initial(dcid[:])
+pub fn Server::new(
+  dcid : Bytes,
+  version~ : UInt32 = @packet.version1,
+) -> Server {
+  let constants = @crypto.Version::of(version).unwrap()
+  let (client, server) = @crypto.initial(dcid[:], version=constants)
   {
+    dcid,
+    version,
     initial_keys: client,
     reply_keys: server,
     handshake: @hs.Handshake::new(),
     conn: Conn::new(true),
   }
+}
+
+///|
+/// Answer under `version` from now on: the reply keys are re-derived from the same connection id
+/// under that version's salt (RFC 9369 §3.3), which is what a version negotiated compatibly does
+/// to a server's own Initial packets (RFC 9368 §4.1). The keys the client's packets arrive under
+/// are left alone, since it may still be sending the version it started with.
+pub fn Server::reply_as(self : Server, version : UInt32) -> Unit {
+  guard self.version != version else { return }
+  let constants = match @crypto.Version::of(version) {
+    Some(constants) => constants
+    None => return
+  }
+  let (_, reply) = @crypto.initial(self.dcid[:], version=constants)
+  self.reply_keys = reply
+  self.version = version
 }
 
 ///|
@@ -84,7 +110,7 @@ pub fn Server::send_server_hello(
   self.handshake.sent(sh_msg[:])
   send_long(
     Initial,
-    1U,
+    self.version,
     out_dcid,
     out_scid,
     pn,
@@ -132,13 +158,16 @@ pub fn Server::send_handshake_flight(
   let crypto = join(join(join(ee, cert), cv), fin)
   send_long(
     Handshake,
-    1U,
+    self.version,
     out_dcid,
     out_scid,
     pn,
     4,
     [@frame.Crypto(offset=0, data=crypto)],
-    @crypto.Keys::of(server_hs_secret[:]),
+    @crypto.Keys::of(
+      server_hs_secret[:],
+      version=@crypto.Version::of(self.version).unwrap(),
+    ),
   )
 }
 

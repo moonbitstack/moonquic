@@ -45,6 +45,8 @@ pub fn of_extensions(ArrayView[@ext.Ext]) -> Array[Param]
 
 pub fn read_token(Bytes, Bytes, Int64, Bytes) -> Token?
 
+pub fn read_version_information(BytesView) -> (UInt32, Array[UInt32])?
+
 pub fn recv_long(Bytes, @crypto.Keys, largest? : Int64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
 
 pub fn recv_short(Bytes, Int32, @crypto.Keys, largest? : Int64, path? : UInt64) -> (Array[@frame.Frame], Int64)? raise @packet.Refused
@@ -57,11 +59,13 @@ pub fn send_long(@packet.Kind, UInt32, Bytes, Bytes, Int64, Int32, Array[@frame.
 
 pub fn send_short(Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, spin? : Bool, key_phase? : Bool, path? : UInt64) -> Bytes
 
-pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys) -> Bytes
+pub fn send_zero_rtt(Bytes, Bytes, Int64, Int32, Array[@frame.Frame], @crypto.Keys, version? : UInt32) -> Bytes
 
 pub fn signed(&@spec.Signer, scheme? : Int32) -> (Bytes) -> Bytes
 
 pub fn stateless_reset(Bytes, (Int32) -> Bytes, min? : Int32) -> Bytes
+
+pub fn version_information(UInt32, ArrayView[UInt32]) -> Param
 
 // Errors
 #derive(Eq)
@@ -76,7 +80,7 @@ pub impl Show for Refused
 
 // Types and methods
 pub struct Client {
-  tls : @tls.Conn
+  mut tls : @tls.Conn
   original_dcid : Bytes
   scid : Bytes
   mut dcid : Bytes
@@ -85,6 +89,13 @@ pub struct Client {
   mut retry_scid : Bytes?
   mut retried : Bool
   mut versions : Array[UInt32]
+  offered : Array[UInt32]
+  mut version : UInt32
+  mut sent_version : UInt32
+  mut constants : @crypto.Version
+  mut salt_dcid : Bytes
+  mut negotiated : Bool
+  mut initial_rx_other : @crypto.Keys?
   mut initial_tx : @crypto.Keys
   mut initial_rx : @crypto.Keys
   mut hs_tx : @crypto.Keys?
@@ -180,7 +191,7 @@ pub fn ClientEndpoint::remove(Self, Bytes) -> Unit
 pub fn ClientEndpoint::tick(Self, Int64) -> Unit
 
 pub(all) struct Config {
-  version : UInt32
+  versions : Array[UInt32]
   idle_timeout : Int64
   close_period : Int64
   max_datagram : Int64
@@ -273,6 +284,7 @@ pub(all) enum Kind {
   RetryScid
   MaxDatagramFrameSize
   InitialMaxPathId
+  VersionInformation
   Other(UInt64)
 }
 pub fn Kind::code(Self) -> UInt64
@@ -452,8 +464,10 @@ pub fn Sender::requeue_all(Self) -> Unit
 pub fn Sender::window(Self) -> Int64
 
 pub struct Server {
+  dcid : Bytes
+  mut version : UInt32
   initial_keys : @crypto.Keys
-  reply_keys : @crypto.Keys
+  mut reply_keys : @crypto.Keys
   handshake : @hs.Handshake
   conn : Conn
 }
@@ -461,11 +475,12 @@ pub fn Server::client_hello(Self) -> Bytes
 pub fn Server::handshake_state(Self) -> @hs.Server
 pub fn Server::initial_ack_pending(Self) -> Bool
 pub fn Server::negotiate(Self) -> @hs.Choice raise @alert.Alert
-pub fn Server::new(Bytes) -> Self
+pub fn Server::new(Bytes, version? : UInt32) -> Self
 pub fn Server::on_frames(Self, Level, Array[@frame.Frame], Int64) -> Array[@msg.Kind] raise
 pub fn Server::on_handshake_frames(Self, Array[@frame.Frame], Int64, Bytes) -> Bool raise
 pub fn Server::receive_handshake(Self, Bytes, @crypto.Keys, Bytes) -> Bool raise
 pub fn Server::receive_initial(Self, Bytes) -> Array[@msg.Kind] raise
+pub fn Server::reply_as(Self, UInt32) -> Unit
 pub fn Server::send_handshake_flight(Self, Bytes, Bytes, Bytes, (Bytes) -> Bytes, Bytes, Bytes, Int64) -> Bytes raise
 pub fn Server::send_server_hello(Self, @msg.Server, Bytes, Bytes, Int64) -> Bytes
 pub fn Server::transcript_hash(Self) -> Bytes
@@ -474,6 +489,8 @@ pub struct Session[A] {
   mut peer : A
   cid : Bytes
   mut peer_cid : Bytes
+  version : UInt32
+  constants : @crypto.Version
   core : Server
   sender : Sender
   cfg : Config

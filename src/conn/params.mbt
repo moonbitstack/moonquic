@@ -27,6 +27,8 @@ pub(all) enum Kind {
   MaxDatagramFrameSize
   /// draft-ietf-quic-multipath §2.1: the largest path id this endpoint will maintain.
   InitialMaxPathId
+  /// RFC 9368 §3: the version this endpoint chose and the ones it would accept.
+  VersionInformation
   Other(UInt64)
 }
 
@@ -53,6 +55,7 @@ pub fn Kind::code(self : Kind) -> UInt64 {
     RetryScid => 0x10
     MaxDatagramFrameSize => 0x20
     InitialMaxPathId => 0x3e
+    VersionInformation => 0x11
     Other(code) => code
   }
 }
@@ -80,8 +83,42 @@ pub fn Kind::of(code : UInt64) -> Kind {
     0x10 => RetryScid
     0x20 => MaxDatagramFrameSize
     0x3e => InitialMaxPathId
+    0x11 => VersionInformation
     _ => Other(code)
   }
+}
+
+///|
+/// A `version_information` parameter (RFC 9368 §3): the version `chosen`, then the versions the
+/// sender would accept, four bytes each. Both sides send one, which is what makes a version
+/// negotiation the peer cannot forge: the list arrives under the handshake's own authentication.
+pub fn version_information(
+  chosen : UInt32,
+  available : ArrayView[UInt32],
+) -> Param {
+  let buf = Buffer()
+  @fixed.write_u32(buf, chosen)
+  for version in available {
+    @fixed.write_u32(buf, version)
+  }
+  { kind: VersionInformation, value: buf.to_bytes(), }
+}
+
+///|
+/// The versions a `version_information` value carries: the chosen one and the list. `None` when
+/// the value is shorter than one version or not a whole number of them, which is what RFC 9368
+/// §4 makes a connection error.
+pub fn read_version_information(value : BytesView) -> (UInt32, Array[UInt32])? {
+  if value.length() < 4 || value.length() % 4 != 0 {
+    return None
+  }
+  let versions : Array[UInt32] = []
+  for at = 0; at < value.length(); at = at + 4 {
+    guard @fixed.read_u32(value, at~) is Some(version) else { break }
+    versions.push(version)
+  }
+  let chosen = versions.remove(0)
+  Some((chosen, versions))
 }
 
 ///|

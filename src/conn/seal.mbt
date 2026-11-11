@@ -89,8 +89,9 @@ pub fn send_zero_rtt(
   size : Int32,
   frames : Array[@frame.Frame],
   keys : @crypto.Keys,
+  version~ : UInt32 = @packet.version1,
 ) -> Bytes {
-  send_long(ZeroRtt, 1U, dcid, scid, number, size, frames, keys)
+  send_long(ZeroRtt, version, dcid, scid, number, size, frames, keys)
 }
 
 ///|

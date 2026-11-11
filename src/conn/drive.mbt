@@ -122,6 +122,7 @@ fn declared(
   cid : Bytes,
   token : Bytes,
   retry~ : Bytes?,
+  version~ : UInt32 = @packet.version1,
 ) -> Bytes {
   let limits = Limits::new(
     idle_timeout=(cfg.idle_timeout / 1000L).reinterpret_as_uint64(),
@@ -148,6 +149,10 @@ fn declared(
   }
   // Without this a reset this endpoint sends means nothing to the peer (RFC 9000 §10.3).
   params.push({ kind: StatelessResetToken, value: token, })
+  // RFC 9368 §3: the version this connection speaks and the ones this deployment would take.
+  // It is what a client checks a negotiation against, so it travels under the handshake's own
+  // authentication rather than in a packet anyone could write.
+  params.push(version_information(version, cfg.versions[:]))
   encode(params[:])
 }
 
@@ -274,6 +279,19 @@ fn[A] Session::adopt_declared(
     Some(fault) => return self.close(fault.code, fault.reason, now)
     None => ()
   }
+  // RFC 9368 §3: a client's own choice of version is in its parameters. One that names a
+  // version other than the one its first flight carried is a handshake that does not add up.
+  match find(params[:], VersionInformation) {
+    Some(p) =>
+      match read_version_information(p.value[:]) {
+        Some((chosen, _)) =>
+          if chosen != self.version {
+            return self.close(transport_parameter_error, b"", now)
+          }
+        None => return self.close(transport_parameter_error, b"", now)
+      }
+    None => ()
+  }
   match find(params[:], InitialScid) {
     Some(p) if p.value == self.peer_cid => ()
     _ => return self.close(transport_parameter_error, b"", now)
@@ -394,8 +412,9 @@ fn roll(
   secret : Bytes,
   keys : @crypto.Keys,
   suite : @crypto.Suite,
+  version~ : @crypto.Version = @crypto.version,
 ) -> (Bytes, @crypto.Keys) {
-  let (next, rolled) = @crypto.next(secret[:], suite~)
+  let (next, rolled) = @crypto.next(secret[:], suite~, version~)
   (next, { ..rolled, hp: keys.hp, })
 }
 
@@ -413,10 +432,20 @@ fn[A] Session::open_app(
   let n = self.cid.length()
   let opened = recv_short(packet, n, keys, largest~, path~)
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
-  let (rx_secret, next) = roll(self.app_rx_secret, keys, self.suite)
+  let (rx_secret, next) = roll(
+    self.app_rx_secret,
+    keys,
+    self.suite,
+    version=self.constants,
+  )
   let moved = recv_short(packet, n, next, largest~, path~)
   guard moved is Some(_) && self.app_tx is Some(tx) else { return None }
-  let (tx_secret, written) = roll(self.app_tx_secret, tx, self.suite)
+  let (tx_secret, written) = roll(
+    self.app_tx_secret,
+    tx,
+    self.suite,
+    version=self.constants,
+  )
   self.app_rx = Some(next)
   self.app_rx_secret = rx_secret
   self.app_tx = Some(written)

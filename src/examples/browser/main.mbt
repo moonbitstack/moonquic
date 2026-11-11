@@ -427,6 +427,7 @@ fn kind_name(kind : @conn.Kind) -> String {
     RetryScid => "retry_source_connection_id"
     MaxDatagramFrameSize => "max_datagram_frame_size"
     InitialMaxPathId => "initial_max_path_id"
+    VersionInformation => "version_information"
     Other(code) => "0x" + code.to_string()
   }
 }

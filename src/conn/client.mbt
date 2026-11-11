@@ -28,6 +28,23 @@ fn declared_paths(params : Bytes) -> UInt64 {
 }
 
 ///|
+/// The transport parameters to declare, with `version_information` added (RFC 9368 §3). A caller
+/// hands this connection an encoded block; the version it chose is this connection's to say, so
+/// the parameter is appended here rather than left to every caller to get right. A block that
+/// does not decode is left alone: the peer refuses it, which is the same answer a wrong block
+/// would have earned anyway.
+fn with_version_information(
+  params : Bytes,
+  chosen : UInt32,
+  offered : ArrayView[UInt32],
+) -> Bytes {
+  match decode_opt(params[:]) {
+    Some(block) => encode([..block, version_information(chosen, offered)])
+    None => params
+  }
+}
+
+///|
 /// The frames one CRYPTO stream run may be split into, and what a packet spends on everything
 /// but frames. An Initial packet's room is computed from the header that will actually carry it
 /// rather than assumed: a Retry token makes the header longer, and a fixed room would then build
@@ -66,7 +83,14 @@ fn crypto_room(
 ///|
 /// A client connection mid-handshake.
 pub struct Client {
-  tls : @tls.Conn
+  /// What the handshake is built from, kept so a version negotiated after a Version Negotiation
+  /// packet can start a new ClientHello that names the version it settled on (RFC 9368 §2.1).
+  priv config : @tls.Client
+  /// The caller's transport parameters, before this connection's own are added: a restarted
+  /// first flight declares them again, under the new version.
+  priv declared : Bytes
+  priv rand : (Int32) -> Bytes
+  mut tls : @tls.Conn
   /// The id the first Initial was addressed to, which a Retry's tag is bound to (§17.2.5.2).
   original_dcid : Bytes
   scid : Bytes
@@ -81,6 +105,23 @@ pub struct Client {
   mut retried : Bool
   /// The versions a Version Negotiation packet offered, empty when none arrived (§6.2).
   mut versions : Array[UInt32]
+  /// The versions this client offered, in preference order (RFC 9368 §3).
+  offered : Array[UInt32]
+  /// The version this client's packets carry: the first it offered, or the one a Version
+  /// Negotiation packet left it with (RFC 9000 §6.2).
+  mut version : UInt32
+  /// The version the first flight went out in. A peer that negotiated compatibly still accepts
+  /// Initial packets under it, so its keys are kept (RFC 9368 §4.1).
+  mut sent_version : UInt32
+  /// The version's constants — salt, labels, Retry key (RFC 9369 §3.3).
+  mut constants : @crypto.Version
+  /// The connection id the Initial keys derive from, which a Retry replaces (§17.2.5.2).
+  mut salt_dcid : Bytes
+  /// Whether a Version Negotiation packet has been acted on, which RFC 9368 §8 needs when the
+  /// server's parameters carry no version_information.
+  mut negotiated : Bool
+  /// The Initial keys of the version the first flight used, while a negotiated version differs.
+  mut initial_rx_other : @crypto.Keys?
   mut initial_tx : @crypto.Keys
   mut initial_rx : @crypto.Keys
   mut hs_tx : @crypto.Keys?
@@ -163,6 +204,15 @@ pub fn Client::new(
   cfg~ : Config = Config::default(),
   resumption? : Remembered,
 ) -> Client raise {
+  let version = match cfg.versions {
+    [first, ..] => first
+    [] => @packet.version1
+  }
+  let constants = @crypto.Version::of(version).unwrap()
+  // RFC 9368 §3: every first flight says which version it chose and which ones it would accept,
+  // so the answer can be held to it without another round trip.
+  let declared = params
+  let params = with_version_information(declared, version, cfg.versions[:])
   let tls = @tls.Conn::quic_client(
     config,
     server_name,
@@ -170,7 +220,7 @@ pub fn Client::new(
     rand~,
     now=wall,
   )
-  let (tx, rx) = @crypto.initial(dcid[:])
+  let (tx, rx) = @crypto.initial(dcid[:], version=constants)
   let core = Conn::new(false)
   // What early data may spend: the ticket's own parameters, unless Config overrules them
   // (RFC 9000 §7.4.1). A client with no ticket and no overrides has no credit, so early data
@@ -193,6 +243,9 @@ pub fn Client::new(
   sender.sched.on_params(data=early_data, bidi=early_bidi, uni=early_uni)
   sender.on_peer_datagram(early_datagram)
   let client : Client = {
+    config,
+    declared,
+    rand,
     tls,
     original_dcid: dcid,
     scid,
@@ -202,6 +255,13 @@ pub fn Client::new(
     retry_scid: None,
     retried: false,
     versions: [],
+    offered: cfg.versions.copy(),
+    version,
+    sent_version: version,
+    constants,
+    salt_dcid: dcid,
+    negotiated: false,
+    initial_rx_other: None,
     initial_tx: tx,
     initial_rx: rx,
     hs_tx: None,
@@ -291,15 +351,27 @@ fn Client::absorb(self : Client) -> Unit {
         }
       Early(secret~, suite~) =>
         self.zero_rtt_tx = Some(
-          @crypto.zero_rtt(secret[:], suite=suite_of(suite)),
+          @crypto.zero_rtt(
+            secret[:],
+            suite=suite_of(suite),
+            version=self.constants,
+          ),
         )
       Keys(level, client~, server~) => {
         if self.tls.suite() is Some(s) {
           self.suite = suite_of(s)
         }
         // A client writes under the client secret and reads under the server's.
-        let tx = @crypto.Keys::of(client[:], suite=self.suite)
-        let rx = @crypto.Keys::of(server[:], suite=self.suite)
+        let tx = @crypto.Keys::of(
+          client[:],
+          suite=self.suite,
+          version=self.constants,
+        )
+        let rx = @crypto.Keys::of(
+          server[:],
+          suite=self.suite,
+          version=self.constants,
+        )
         match level {
           Handshake => {
             self.hs_tx = Some(tx)
@@ -356,6 +428,7 @@ fn Client::adopt_peer_params(self : Client) -> Unit {
     Some(fault) => return self.close(fault.code, fault.reason, self.at)
     None => ()
   }
+  self.check_version_information(params[:])
   // §7.3: the server confirms the id the client invented, the id a Retry named, and the id it
   // chose for itself. A handshake that does not add up is not this connection.
   if !same_param(params, OriginalDcid, self.original_dcid) {
@@ -400,6 +473,68 @@ fn Client::adopt_peer_params(self : Client) -> Unit {
       peer.idle_timeout.reinterpret_as_int64() * 1000L,
     )
   }
+}
+
+///|
+/// Hold the server's `version_information` to the version this handshake settled on (RFC 9368
+/// §4): the chosen version must be the negotiated one, and the list must be one this client would
+/// have picked the same version out of. The packet that carries it is authenticated, so a middlebox
+/// cannot rewrite it into a version this client did not choose.
+///
+/// A peer that sends no parameter at all is let through: implementations that speak version 2
+/// without RFC 9368 are still about, and §8 reads a missing parameter as the version 1 deployment
+/// a client that answered a Version Negotiation packet would have been talking to. Nothing is lost
+/// by it — RFC 9369 §8 gives the two versions the same security properties, so a fall from one to
+/// the other is not a downgrade in strength, only in name.
+fn Client::check_version_information(
+  self : Client,
+  params : ArrayView[Param],
+) -> Unit {
+  let at = self.at
+  match find(params, VersionInformation) {
+    Some(p) =>
+      match read_version_information(p.value[:]) {
+        Some((chosen, available)) => {
+          if chosen != self.version {
+            return self.close(version_negotiation_error, b"chosen version", at)
+          }
+          // §4's second test is what a Version Negotiation packet is held to: the version this
+          // client acted on has to be the one it would have chosen from the list the server
+          // publishes now, or a middlebox rewrote the list on the way. A connection that
+          // negotiated compatibly never saw a Version Negotiation packet, so there is nothing for
+          // that test to catch — the peer picked from what the handshake itself carried.
+          guard self.negotiated else { return }
+          if available.length() == 0 {
+            return self.close(version_negotiation_error, b"no versions", at)
+          }
+          let offered = available.copy()
+          offered.push(self.version)
+          match self.would_pick(offered[:]) {
+            Some(pick) =>
+              if pick != self.version {
+                return self.close(
+                  version_negotiation_error, b"a version this client would not have chosen",
+                  at,
+                )
+              }
+            None => ()
+          }
+        }
+        None => return self.close(version_negotiation_error, b"malformed", at)
+      }
+    None => ()
+  }
+}
+
+///|
+/// The version this client would choose from `offered`, by its own order of preference.
+fn Client::would_pick(self : Client, offered : ArrayView[UInt32]) -> UInt32? {
+  for version in self.offered {
+    if offered.contains(version) {
+      return Some(version)
+    }
+  }
+  None
 }
 
 ///|
@@ -572,7 +707,7 @@ fn Client::seal_level(
       let build = body => {
         seal_long(
           Initial,
-          1U,
+          self.version,
           self.dcid,
           self.scid,
           pn,
@@ -587,7 +722,16 @@ fn Client::seal_level(
     Handshake =>
       match self.hs_tx {
         Some(keys) =>
-          send_long(Handshake, 1U, self.dcid, self.scid, pn, 4, frames, keys)
+          send_long(
+            Handshake,
+            self.version,
+            self.dcid,
+            self.scid,
+            pn,
+            4,
+            frames,
+            keys,
+          )
         None => b""
       }
     Application =>
@@ -614,7 +758,17 @@ fn Client::zero_rtt_packets(
     match next {
       Some((pn, frames)) => {
         space.advance_past(pn)
-        out.push(send_zero_rtt(self.dcid, self.scid, pn, 4, frames, keys))
+        out.push(
+          send_zero_rtt(
+            self.dcid,
+            self.scid,
+            pn,
+            4,
+            frames,
+            keys,
+            version=self.sent_version,
+          ),
+        )
         self.zero_sent = true
       }
       None => break
@@ -726,7 +880,7 @@ pub fn Client::recv_on(
       self.on_versions(view, h)
       break
     }
-    if h.version != self.cfg.version {
+    if !self.accepts(h.version) {
       // RFC 9000 §6: a version this client did not offer is not this connection's business.
       break
     }
@@ -741,7 +895,11 @@ pub fn Client::recv_on(
     let packet = view[0:size].to_owned()
     at = at + size
     match h.packet_type {
-      Initial => self.on_long(Level::Initial, h, packet, self.initial_rx, now)
+      Initial =>
+        match self.initial_rx_for(h.version) {
+          Some(keys) => self.on_long(Level::Initial, h, packet, keys, now)
+          None => ()
+        }
       Handshake =>
         match self.hs_rx {
           Some(keys) => self.on_long(Level::Handshake, h, packet, keys, now)
@@ -749,6 +907,39 @@ pub fn Client::recv_on(
         }
       _ => ()
     }
+  }
+}
+
+///|
+/// Whether a long header's version is one this connection may read (RFC 9368 §4.1). The version
+/// this client sends, and — until the handshake is confirmed — the one the first flight went out
+/// in, since a peer that converted keeps answering Initial packets under it for a while.
+fn Client::accepts(self : Client, version : UInt32) -> Bool {
+  version == self.version ||
+  (!self.confirmed && version == self.sent_version) ||
+  // A version this client offered, which a peer switched to without a Version Negotiation
+  // packet: the compatible negotiation of RFC 9368 §2.3.
+  (!self.confirmed && self.offered.contains(version))
+}
+
+///|
+/// The keys a server's Initial packet under `version` opens with. The version this connection
+/// speaks has its keys installed; another version this client offered yields them from the same
+/// connection id, which is what a peer that converted sends under (RFC 9368 §4.1).
+fn Client::initial_rx_for(self : Client, version : UInt32) -> @crypto.Keys? {
+  if version == self.version {
+    return Some(self.initial_rx)
+  }
+  if version == self.sent_version {
+    match self.initial_rx_other {
+      Some(keys) => return Some(keys)
+      None => ()
+    }
+  }
+  match @crypto.Version::of(version) {
+    Some(constants) =>
+      Some(@crypto.initial(self.salt_dcid[:], version=constants).1)
+    None => None
   }
 }
 
@@ -782,7 +973,11 @@ fn Client::on_retry(self : Client, packet : Bytes, h : @packet.Long) -> Unit {
   self.retry_scid = Some(h.scid)
   self.server_scid = h.scid
   self.seen_server_cid = true
-  let (tx, rx) = @crypto.initial(h.scid[:])
+  // A Retry has to carry the version of the first flight it answers (RFC 9368 §4.1), so the keys
+  // that replace the old ones are that version's.
+  let constants = @crypto.Version::of(self.sent_version).unwrap()
+  let (tx, rx) = @crypto.initial(h.scid[:], version=constants)
+  self.salt_dcid = h.scid
   self.initial_tx = tx
   self.initial_rx = rx
   // The ClientHello goes out again from offset zero; the packet numbers do not restart, since
@@ -797,14 +992,105 @@ fn Client::on_versions(
   self : Client,
   packet : BytesView,
   h : @packet.Long,
-) -> Unit {
-  guard !self.seen_server_cid && h.dcid == self.scid else { return }
+) -> Unit raise {
+  // §6.2: a Version Negotiation packet is discarded once anything else has been processed, and
+  // one that lists the version this client sent is not an answer to it.
+  guard !self.seen_server_cid && !self.negotiated else { return }
+  guard h.dcid == self.scid else { return }
   match @packet.read_versions(packet[:]) {
-    Some((dcid, scid, offered)) =>
-      if dcid == self.scid && scid == self.dcid {
-        self.versions = offered
+    Some((dcid, scid, offered)) => {
+      guard dcid == self.scid && scid == self.dcid else { return }
+      // The list is kept for the caller to read even when it is not acted on.
+      self.versions = offered
+      guard !offered.contains(self.version) else { return }
+      // RFC 9368 §2.1: the connection restarts in a version both ends speak. The search runs
+      // over this client's own preference order, so a server cannot talk it into a version it
+      // ranked lower than one it could have had.
+      match self.pick_version(offered[:]) {
+        Some(chosen) => self.restart(chosen)
+        None => ()
       }
+    }
     None => ()
+  }
+}
+
+///|
+/// The version to answer a Version Negotiation packet with: the first of this client's own
+/// preferences that the peer offers, and not the one already refused (RFC 9368 §2.1). `None`
+/// when the two lists do not meet, which leaves the caller to abandon the attempt.
+fn Client::pick_version(self : Client, offered : ArrayView[UInt32]) -> UInt32? {
+  for version in self.offered {
+    if offered.contains(version) && version != self.sent_version {
+      return Some(version)
+    }
+  }
+  None
+}
+
+///|
+/// Start again in `version` after a Version Negotiation packet (RFC 9368 §2.1): the same
+/// connection id, a first flight under that version's Initial keys, and the packet numbers
+/// carrying on where they were. Early data goes: §4.1 does not let a client send 0-RTT in a
+/// version it negotiated to.
+fn Client::restart(self : Client, version : UInt32) -> Unit raise {
+  let constants = match @crypto.Version::of(version) {
+    Some(constants) => constants
+    None => return
+  }
+  // The first flight is a new one, not the old bytes under new keys: its version_information has
+  // to name the version it is sent in, and a peer holds the connection to that (RFC 9368 §4).
+  self.tls = @tls.Conn::quic_client(
+    self.config,
+    self.host,
+    params=with_version_information(self.declared, version, self.offered[:]),
+    rand=self.rand,
+    now=self.wall,
+  )
+  let (tx, rx) = @crypto.initial(self.salt_dcid[:], version=constants)
+  self.negotiated = true
+  self.version = version
+  self.sent_version = version
+  self.constants = constants
+  self.initial_tx = tx
+  self.initial_rx = rx
+  self.initial_rx_other = None
+  if self.zero_sent || self.zero_rtt_tx is Some(_) {
+    self.zero_rtt_tx = None
+    self.zero_rejected = true
+    self.sender.requeue_all()
+  }
+  // What the handshake wants sent is the new ClientHello and nothing else: the old bytes stay in
+  // the outbox unless it is emptied, and two hellos on one CRYPTO stream is a peer's
+  // unexpected_message.
+  self.initial_out.clear()
+  self.handshake_out.clear()
+  self.absorb()
+}
+
+///|
+/// Take the version a peer answered in, when it is one this client offered and the handshake
+/// still has room for it (RFC 9368 §2.3). Called only for a packet that opened, so an off-path
+/// packet cannot move the connection to another version.
+fn Client::adopt_version(self : Client, version : UInt32) -> Unit {
+  guard version != self.version && !self.confirmed else { return }
+  let constants = match @crypto.Version::of(version) {
+    Some(constants) => constants
+    None => return
+  }
+  // What the first flight went out under stays readable until the handshake is confirmed
+  // (RFC 9368 §4.1), and what this client sends from now on is the negotiated version.
+  self.initial_rx_other = Some(self.initial_rx)
+  self.initial_rx = @crypto.initial(self.salt_dcid[:], version=constants).1
+  self.initial_tx = @crypto.initial(self.salt_dcid[:], version=constants).0
+  self.version = version
+  self.constants = constants
+  if self.zero_rtt_tx is Some(_) {
+    // §4.1: 0-RTT is sent in the version the first flight used, so a connection that moved on
+    // cannot keep spending it.
+    self.zero_rtt_tx = None
+    self.zero_rejected = true
+    self.sender.requeue_all()
   }
 }
 
@@ -830,6 +1116,9 @@ fn Client::on_long(
     _ => return self.close(frame_encoding_error, b"", now)
   }
   guard opened is Some((frames, pn)) else { return }
+  // The packet authenticated under its own version's keys, so the version it names is the one the
+  // peer is answering in: this is where a compatible negotiation lands (RFC 9368 §4.1).
+  self.adopt_version(h.version)
   if self.seen_server_cid && h.scid != self.server_scid {
     // RFC 9000 §7.2: after the first authenticated packet, another source id is another
     // connection's traffic.
@@ -903,7 +1192,12 @@ fn Client::open_app(
   let n = self.scid.length()
   let opened = recv_short(packet, n, keys, largest~, path~)
   guard opened is None && self.app_rx_secret.length() > 0 else { return opened }
-  let (secret, next) = roll(self.app_rx_secret, keys, self.suite)
+  let (secret, next) = roll(
+    self.app_rx_secret,
+    keys,
+    self.suite,
+    version=self.constants,
+  )
   let moved = recv_short(packet, n, next, largest~, path~)
   guard moved is Some(_) else { return None }
   self.app_rx = Some(next)
@@ -918,7 +1212,12 @@ fn Client::open_app(
 ///|
 fn Client::next_write_phase(self : Client) -> Unit {
   guard self.app_tx is Some(keys) else { return }
-  let (secret, next) = roll(self.app_tx_secret, keys, self.suite)
+  let (secret, next) = roll(
+    self.app_tx_secret,
+    keys,
+    self.suite,
+    version=self.constants,
+  )
   self.app_tx = Some(next)
   self.app_tx_secret = secret
   self.key_phase = !self.key_phase

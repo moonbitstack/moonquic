@@ -636,7 +636,8 @@ test "an unknown version is answered with the versions this server speaks" {
   let (dcid, scid, versions) = @packet.read_versions(answer[0][:]).unwrap()
   assert_eq(dcid, h.scid)
   assert_eq(scid, h.dcid)
-  assert_eq(versions, [1U])
+  // A server that speaks version 2 offers both, in its own order of preference.
+  assert_eq(versions, [1U, @packet.version2])
 }
 
 ///|

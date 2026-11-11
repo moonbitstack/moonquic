@@ -36,12 +36,16 @@ pub let min_datagram : Int32 = 1200
 pub let amplification : Int64 = 3L
 
 ///|
-/// What a server gives each new connection: the QUIC version its long headers carry, the idle
-/// timeout it advertises, how long a closing or draining connection lingers, and the datagram
-/// size, timer tuning and flow-control credit the send loop starts from. Every duration is in
-/// microseconds, the unit the recovery code measures in.
+/// What a server gives each new connection: the QUIC versions it speaks, the idle timeout it
+/// advertises, how long a closing or draining connection lingers, and the datagram size, timer
+/// tuning and flow-control credit the send loop starts from. Every duration is in microseconds,
+/// the unit the recovery code measures in.
 pub(all) struct Config {
-  version : UInt32
+  /// The QUIC versions this endpoint speaks, in order of preference (RFC 9369 §3, RFC 9368 §3).
+  /// A client sends its first flight in the first; a server answers in a version the client chose
+  /// when that is one of these, and offers the rest in a Version Negotiation packet when it is
+  /// not. Version 1 and version 2 are the two this library knows.
+  versions : Array[UInt32]
   idle_timeout : Int64
   close_period : Int64
   max_datagram : Int64
@@ -82,6 +86,11 @@ let crypto_buffer_exceeded : UInt64 = 0x0dUL
 ///|
 /// TRANSPORT_PARAMETER_ERROR, RFC 9000 §20.1.
 let transport_parameter_error : UInt64 = 0x08UL
+
+///|
+/// VERSION_NEGOTIATION_ERROR (RFC 9368 §10.2, error code 0x11): the version an authenticated
+/// handshake settled on is not the one the peer's own list would have given.
+let version_negotiation_error : UInt64 = 0x11UL
 
 ///|
 /// PROTOCOL_VIOLATION (RFC 9000 §20.1).
@@ -125,7 +134,7 @@ fn stream_error(e : @stream.Refused) -> UInt64 {
 /// stream, and a hundred streams of each kind at a time, as HTTP/2 servers commonly allow.
 pub fn Config::default() -> Config {
   {
-    version: 1U,
+    versions: [@packet.version1, @packet.version2],
     idle_timeout: 30_000_000L,
     close_period: 3_000_000L,
     max_datagram: 1200L,
@@ -184,6 +193,11 @@ pub struct Session[A] {
   mut peer : A
   cid : Bytes
   mut peer_cid : Bytes
+  /// The QUIC version this connection speaks: the client's chosen version when this server offers
+  /// it, and the one a negotiated switch settles on (RFC 9368 §4.1).
+  version : UInt32
+  /// That version's constants — its salt, labels and Retry key (RFC 9369 §3.3).
+  constants : @crypto.Version
   core : Server
   sender : Sender
   cfg : Config
@@ -255,6 +269,7 @@ fn[A] Session::new(
   original~ : Bytes = cid,
   initial? : Bytes,
   tls? : @tls.Conn,
+  version~ : UInt32 = @packet.version1,
 ) -> Session[A] {
   // The Initial keys come from the Destination Connection ID of the packet that arrived, which
   // after a Retry is the id the Retry named rather than the first one (RFC 9001 §5.2).
@@ -263,6 +278,7 @@ fn[A] Session::new(
       Some(id) => id
       None => original
     },
+    version~,
   )
   let sender = Sender::new(
     cfg.initial_max_data,
@@ -276,6 +292,8 @@ fn[A] Session::new(
     peer,
     cid,
     peer_cid,
+    version,
+    constants: @crypto.Version::of(version).unwrap(),
     core,
     sender,
     cfg,
@@ -432,9 +450,13 @@ pub fn[A] Session::install_handshake_keys(
   client_secret : Bytes,
   server_secret : Bytes,
 ) -> Unit {
-  self.hs_rx = Some(@crypto.Keys::of(client_secret[:], suite=self.suite))
+  self.hs_rx = Some(
+    @crypto.Keys::of(client_secret[:], suite=self.suite, version=self.constants),
+  )
   self.hs_rx_secret = client_secret
-  self.hs_tx = Some(@crypto.Keys::of(server_secret[:], suite=self.suite))
+  self.hs_tx = Some(
+    @crypto.Keys::of(server_secret[:], suite=self.suite, version=self.constants),
+  )
 }
 
 ///|
@@ -446,9 +468,13 @@ pub fn[A] Session::install_app_keys(
   client_secret : Bytes,
   server_secret : Bytes,
 ) -> Unit {
-  self.app_rx = Some(@crypto.Keys::of(client_secret[:], suite=self.suite))
+  self.app_rx = Some(
+    @crypto.Keys::of(client_secret[:], suite=self.suite, version=self.constants),
+  )
   self.app_rx_secret = client_secret
-  self.app_tx = Some(@crypto.Keys::of(server_secret[:], suite=self.suite))
+  self.app_tx = Some(
+    @crypto.Keys::of(server_secret[:], suite=self.suite, version=self.constants),
+  )
   self.app_tx_secret = server_secret
 }
 
@@ -559,7 +585,7 @@ fn[A] Session::seal(
     Initial =>
       seal_long(
         Initial,
-        self.cfg.version,
+        self.version,
         self.peer_cid,
         self.cid,
         pn,
@@ -571,7 +597,7 @@ fn[A] Session::seal(
       guard self.hs_tx is Some(k) else { return b"" }
       seal_long(
         Handshake,
-        self.cfg.version,
+        self.version,
         self.peer_cid,
         self.cid,
         pn,
