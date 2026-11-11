@@ -88,6 +88,7 @@
         <li><a href="#protect">Protect a packet</a></li>
         <li><a href="#paths">A second path</a></li>
         <li><a href="#resume">Resume a connection</a></li>
+        <li><a href="#versions">A second version</a></li>
         <li><a href="#time">Time and loss</a></li>
       </ol>
     </nav>
@@ -224,6 +225,45 @@ let next = @conn.Client::new(              // the sketch: needs a store and a so
         judges tickets at <code>wall</code>, seconds since the epoch — a different clock from
         <code>now</code>, which only drives timers. An endpoint given no <code>wall</code> neither
         issues nor takes a ticket, because 0-RTT data can be replayed by whoever recorded it.</p>
+
+      <h2 id="versions">A second version</h2>
+      <p>Version 2 is the same protocol under different constants, so the version a packet carries
+        decides how it is protected and what its first byte means: the salt, the four labels, the
+        Retry key and the four type codes all change. <code>Config.versions</code> names what an end
+        speaks, and <code>@crypto.Version::of</code> turns the number a long header carries into
+        those constants.</p>
+<pre class="scroll"><code>let v2 = @crypto.Version::of(@packet.version2).unwrap()
+assert_eq(v2.key, b"quicv2 key")
+assert_eq(@packet.Kind::Initial.code(@packet.version2), 1)
+let dcid : Bytes = b"Èð>QW"
+let (rx, tx) = @crypto.initial(dcid[:], version=v2)
+let wire = @conn.seal_long(
+  @packet.Kind::Initial, @packet.version2, dcid, b"ª»ÌÝ", 0L, 4,
+  @packet.payload([@frame.Ping]), tx,
+)
+guard @conn.recv_long(wire, rx, largest=-1L) is Some((read, _)) else {
+  abort("the packet did not open")
+}
+assert_eq(read, [@frame.Ping])</code></pre>
+      <p>The same call under version 1 produces different bytes, and neither opens under the other's
+        keys — which is the whole point of a second version, and why the first flight says which one
+        it is. A first flight also carries <code>version_information</code>: the version it chose and
+        the ones beside it, both under the handshake's own authentication.</p>
+<pre class="scroll"><code>let param = @conn.version_information(
+  @packet.version2,
+  [@packet.version1, @packet.version2][:],
+)
+assert_eq(param.kind.code(), 0x11UL)
+assert_eq(
+  @conn.read_version_information(param.value[:]),
+  Some((@packet.version2, [@packet.version1, @packet.version2])),
+)</code></pre>
+      <p>A server that does not speak the version a client chose answers with a Version Negotiation
+        packet naming the ones it does; the client restarts from a new first flight in a version both
+        ends speak, keeping its connection id and its packet numbers. When the peer instead answers in
+        a version the client also offered, the client adopts it without a round trip. Either way the
+        version the handshake settled on is checked against the peer's own list, and a mismatch ends
+        the connection with <code>VERSION_NEGOTIATION_ERROR</code> (0x11).</p>
 
       <h2 id="time">Time and loss</h2>
       <p>Nothing moves without <code>tick</code>. It runs the probe timeout on each handshake level,

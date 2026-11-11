@@ -108,3 +108,28 @@ Rules that catch people out:
   §19.8 lets the peer answer only on a bidirectional stream this end opened.
 - **Nothing is retransmitted by the caller.** `poll_out`, `poll_lane` and `poll_paths` hand back what
   a lost packet carried once the timers say so; keep calling `tick`.
+
+## Speak version 2, and negotiate a version
+
+`Config.versions` is what an endpoint speaks, first-listed first: a client sends its first flight in
+the first, a server answers in the client's version when it has it and offers a Version Negotiation
+packet when it does not. Version 2 changes the Initial salt, the four HKDF labels, the Retry key and
+the long-header type codes, so a packet is sealed and read with the version it carries.
+
+```moonbit
+let v2 = @crypto.Version::of(@packet.version2).unwrap()
+assert_eq(v2.key, b"quicv2 key")
+// A server that speaks version 2 only: a version 1 client is offered the one it has.
+let cfg = { ..@conn.Config::default(), versions: [@packet.version2], }
+assert_eq(cfg.versions, [@packet.version2])
+assert_eq(@packet.Kind::Initial.code(@packet.version1), 0)
+assert_eq(@packet.Kind::Initial.code(@packet.version2), 1)
+```
+
+- **Both ends send `version_information`**, and a client checks the peer's against the version the
+  handshake settled on. A mismatch closes the connection with `VERSION_NEGOTIATION_ERROR` (0x11).
+- **A client that acted on a Version Negotiation packet restarts**, and `Client::versions` says what
+  the packet offered. The restart keeps the connection id and the packet numbers, and drops early
+  data: RFC 9368 §4.1 does not let a client send 0-RTT in a version it negotiated to.
+- **A server's connection keeps its version for life.** A packet naming another version is not that
+  connection's traffic, so a migration does not change it.

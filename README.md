@@ -8,7 +8,7 @@
   <a href="https://mooncakes.io/docs/moonbitstack/moonquic">mooncakes</a>
 </p>
 
-The QUIC transport for MoonBit ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001), [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002)) — bytes in, events out. No sockets, no handshake of its own: the TLS 1.3 handshake is [`moontls`](https://github.com/moonbitstack/moontls)'s and the ciphers are [`mooncrypt`](https://github.com/moonbitstack/mooncrypt)'s.
+The QUIC transport for MoonBit ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [RFC 9001](https://www.rfc-editor.org/rfc/rfc9001), [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002), and [RFC 9369](https://www.rfc-editor.org/rfc/rfc9369)'s version 2 with [RFC 9368](https://www.rfc-editor.org/rfc/rfc9368)'s version negotiation) — bytes in, events out. No sockets, no handshake of its own: the TLS 1.3 handshake is [`moontls`](https://github.com/moonbitstack/moontls)'s and the ciphers are [`mooncrypt`](https://github.com/moonbitstack/mooncrypt)'s.
 
 ```moonbit
 // A protected Initial packet, from the connection ID up (RFC 9001 §5.2–§5.4).
@@ -41,11 +41,11 @@ moon run src/examples/04-crypto     moon run src/examples/07-recovery
 |  | What it covers |
 |:--:|:--|
 | `frame` | [§19](https://www.rfc-editor.org/rfc/rfc9000#section-19) every frame type, [§19.3.1](https://www.rfc-editor.org/rfc/rfc9000#section-19.3.1) the ACK range encoding both ways, and the multipath frames of [draft-ietf-quic-multipath §4](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/) with their own type codes |
-| `packet` | [§17](https://www.rfc-editor.org/rfc/rfc9000#section-17) long and short headers, Retry, Version Negotiation, [§17.1](https://www.rfc-editor.org/rfc/rfc9000#section-17.1) packet numbers, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces |
-| `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update, and the path-and-packet-number nonce multipath needs |
+| `packet` | [§17](https://www.rfc-editor.org/rfc/rfc9000#section-17) long and short headers, Retry, Version Negotiation, [§17.1](https://www.rfc-editor.org/rfc/rfc9000#section-17.1) packet numbers, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces, and [RFC 9369 §3.2](https://www.rfc-editor.org/rfc/rfc9369#section-3.2) version 2's own type codes |
+| `crypto` | [§5](https://www.rfc-editor.org/rfc/rfc9001#section-5) packet protection, header protection and the Retry tag, [§6](https://www.rfc-editor.org/rfc/rfc9001#section-6) key update, [RFC 9369 §3.3](https://www.rfc-editor.org/rfc/rfc9369#section-3.3) version 2's salt, labels and Retry key, and the path-and-packet-number nonce multipath needs |
 | `recovery` | [RFC 9002](https://www.rfc-editor.org/rfc/rfc9002) the round-trip estimate, both loss thresholds, the probe timeout, and NewReno, CUBIC ([RFC 9438](https://www.rfc-editor.org/rfc/rfc9438)) and BBR behind one controller trait, with persistent congestion; [§7.7](https://www.rfc-editor.org/rfc/rfc9002#section-7.7) pacing as a token bucket over bytes |
 | `stream` | [§2](https://www.rfc-editor.org/rfc/rfc9000#section-2) stream IDs and reassembly, [§3](https://www.rfc-editor.org/rfc/rfc9000#section-3) both state machines, [§4](https://www.rfc-editor.org/rfc/rfc9000#section-4) data flow control and the stream quota, and a round-robin scheduler |
-| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams, 0-RTT and resumption, [§6](https://www.rfc-editor.org/rfc/rfc9000#section-6) Retry and version negotiation, the frame and parameter checks [§12.4](https://www.rfc-editor.org/rfc/rfc9000#section-12.4) and [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) require, many client connections on one id space, and multipath: a packet-number space, a congestion window and a PATH_ACK for each path |
+| `conn` | [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) transport parameters, [§12.3](https://www.rfc-editor.org/rfc/rfc9000#section-12.3) the three spaces and their CRYPTO streams, the client and server handshakes, the connection table and event loop with its timers and amplification limit ([§8.1](https://www.rfc-editor.org/rfc/rfc9000#section-8.1), [§10](https://www.rfc-editor.org/rfc/rfc9000#section-10), [§14.1](https://www.rfc-editor.org/rfc/rfc9000#section-14.1)), [§9](https://www.rfc-editor.org/rfc/rfc9000#section-9) migration and path validation, [§10.3](https://www.rfc-editor.org/rfc/rfc9000#section-10.3) stateless reset, [RFC 9221](https://www.rfc-editor.org/rfc/rfc9221) datagrams, 0-RTT and resumption, [§6](https://www.rfc-editor.org/rfc/rfc9000#section-6) Retry, version 2 and [RFC 9368](https://www.rfc-editor.org/rfc/rfc9368)'s `version_information` on both ends, the frame and parameter checks [§12.4](https://www.rfc-editor.org/rfc/rfc9000#section-12.4) and [§18](https://www.rfc-editor.org/rfc/rfc9000#section-18) require, many client connections on one id space, and multipath: a packet-number space, a congestion window and a PATH_ACK for each path |
 
 `frame` and `packet` are pure codecs over [`moonvar/quic`](https://github.com/moonbitstack/moonvar), so a tool that only wants to read packets off a capture links nothing else — the variable-length integer went to a library of its own, because QUIC is not the only thing that writes one.
 
@@ -277,6 +277,36 @@ let cfg = { ..@conn.Config::default(), max_datagram_frame_size: 1200UL }
 assert_eq(cfg.max_datagram_frame_size, 1200UL)
 ```
 
+## Versions
+
+Version 2 ([RFC 9369](https://www.rfc-editor.org/rfc/rfc9369)) is the same protocol with different constants: an Initial salt of its own, four HKDF labels with `v2` in front of the word they carry, a Retry tag under its own key and nonce, and the four long-header type codes rotated by one — so a middlebox that learned one version's numbers rejects the other's instead of guessing. A version is a value here rather than a constant in the code, which is why the same sealing function writes both.
+
+```moonbit
+assert_eq(@packet.Kind::Initial.code(@packet.version1), 0)
+assert_eq(@packet.Kind::Initial.code(@packet.version2), 1)
+assert_eq(@packet.Kind::of(@packet.version2, 1), @packet.Kind::Initial)
+// The constants that differ, by the number a long header carries.
+assert_eq(@crypto.Version::of(@packet.version2).unwrap().salt[0].to_int(), 0x0d)
+assert_eq(@crypto.Version::of(@packet.version2).unwrap().key, b"quicv2 key")
+```
+
+`Config.versions` is what an endpoint speaks, in its own order of preference: a client sends its first flight in the first, and a server answers in the version the client chose when that is one of them, offering the rest in a Version Negotiation packet when it is not.
+
+```moonbit
+let only_v2 = { ..@conn.Config::default(), versions: [@packet.version2], }
+assert_eq(only_v2.versions, [@packet.version2])
+let both = { ..@conn.Config::default(), versions: [@packet.version1, @packet.version2], }
+assert_eq(both.versions.length(), 2)
+```
+
+Negotiation follows [RFC 9368](https://www.rfc-editor.org/rfc/rfc9368) rather than RFC 9000 §6.2 alone. Every first flight carries a `version_information` transport parameter — the version it chose and the ones it would accept — and so does the peer's answer, both under the handshake's own authentication, so a middlebox cannot rewrite either. Three things follow from that:
+
+- A client that receives a Version Negotiation packet restarts in a version both ends speak, from a new first flight (RFC 9368 §2.1). `Client::versions` says what the packet offered. A packet that lists the version already tried is discarded, and one arriving after anything else has been processed is discarded too (RFC 9000 §6.2).
+- A client that finds the peer answering in another version it offered adopts that version, keeps the first flight's Initial keys until the handshake is confirmed, and sends what follows under the negotiated version's labels (RFC 9368 §4.1). Early data goes: §4.1 does not let a client send 0-RTT in a version it negotiated to.
+- The peer's `version_information` is held to the version the handshake settled on: a chosen version that is not the negotiated one, or — after a Version Negotiation packet — a list this client would have picked a different version out of, closes the connection with `VERSION_NEGOTIATION_ERROR` (0x11).
+
+A server speaks the version its connection answered in for the connection's whole life, and a packet naming another version is not that connection's traffic.
+
 ## Everything the protocol leaves open is a parameter
 
 The cipher suite is a record with a public preset:
@@ -369,6 +399,8 @@ The connection itself is exercised over real datagrams by the peer in `integrati
 |:--|:--|:--|:--|
 | `scripts/quic/check_aioquic_early_data.py` | aioquic 1.3.0 | a resumed connection writes before its handshake, with neither `Config` credit field set, and the peer reads those bytes **before its handshake completes** | passes: one 0-RTT datagram of 67 bytes, `early_accepted true`, the peer's first read recorded ahead of its own handshake |
 | `scripts/quic/check_picoquic_multipath.py` | picoquic `7fa9c85` | a second path is opened from a second socket against the connection id the peer offers, challenged and validated, and then carries a request of its own | passes: both paths answer the same file, a PATH_ACK naming path 1 is in the peer's log in both directions, and the path's flight settles to zero |
+| `scripts/quic/check_versions.py` | quic-go `v0.55.0` | both directions, in version 1 and version 2, with the default key share; then a client offering both versions to a peer that speaks only version 2, which is a Version Negotiation packet and a restart | passes: sixteen checks, the version read off both ends each time, and the peer naming `X25519MLKEM768` as the group it ran |
+| `scripts/quic/check_ngtcp2.py` | ngtcp2 `v1.16.0` | its example client opens a stream against this library's server, in version 1 and version 2 | passes: both exchanges finish, and the client's own packet log names the version it spoke |
 
 The first run is the one that says what the ticket remembered is enough: the client sets no `zero_rtt_data` or `zero_rtt_stream_data`, so the credit its early bytes spend is the previous connection's, and aioquic accepting them is the proof that the block travelled with the ticket. The second is the one that says a path's connection id is what opens it — the id arrives before there is a path to put it on, and the path keeps its own packet numbers, its own acknowledgement and its own recovery from there.
 
