@@ -156,6 +156,8 @@ jobs:
           sudo apt-get install -y -qq libssl-dev libnghttp3-dev libnghttp2-dev libev-dev pkg-config
           git clone -q --depth 1 -b v1.16.0 https://github.com/ngtcp2/ngtcp2.git
           cd ngtcp2
+          # The example links a vendored URL parser, which is a submodule.
+          git submodule update --init --depth 1 third-party/urlparse
           cmake -B build -DENABLE_OPENSSL=ON -DENABLE_GNUTLS=OFF \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF
           cmake --build build -j $(nproc) --target osslclient
