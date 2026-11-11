@@ -135,8 +135,7 @@ def main() -> int:
     work = pathlib.Path(tempfile.mkdtemp(prefix="moonquic-versions-"))
     for name in ("peer", "client", "server"):
         source = pathlib.Path(getattr(args, name))
-        target = work / (source.name if name == "peer" else "client" if name == "client"
-                         else "server")
+        target = work / name
         shutil.copyfile(source, target)
         target.chmod(0o755)
 
