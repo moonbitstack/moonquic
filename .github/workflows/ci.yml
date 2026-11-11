@@ -153,7 +153,7 @@ jobs:
       - name: build ngtcp2
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq libssl-dev libnghttp3-dev libnghttp2-dev pkg-config
+          sudo apt-get install -y -qq libssl-dev libnghttp3-dev libnghttp2-dev libev-dev pkg-config
           git clone -q --depth 1 -b v1.16.0 https://github.com/ngtcp2/ngtcp2.git
           cd ngtcp2
           cmake -B build -DENABLE_OPENSSL=ON -DENABLE_GNUTLS=OFF \
