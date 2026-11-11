@@ -40,7 +40,10 @@ keywords = [
   "packet-recovery",
   "probe-timeout",
   "stream-multiplexing",
-  "version-negotiation",
+  "rfc9369",
+  "rfc9368",
+  "quic-v2",
+  "version-2",
   "moonbit",
 ]
 
