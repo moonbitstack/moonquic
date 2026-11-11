@@ -54,7 +54,49 @@ async fn tls_client(
   } else {
     @tls.Verify::Chain
   }
-  @tls.Client::new(roots, alpn~, verify~, sessions?, early~)
+  let groups = match options.get("groups") {
+    Some(list) => names_of(list)
+    None => @tls.groups
+  }
+  @tls.Client::new(roots, alpn~, verify~, sessions?, early~, groups~)
+}
+
+///|
+/// The key-exchange groups a comma-separated list names, or the defaults.
+fn names_of(list : String) -> Array[Int32] {
+  let out : Array[Int32] = []
+  for name in list.split(",") {
+    out.push(
+      match name {
+        "x25519" => @ext.x25519
+        "secp256r1" => @ext.secp256r1
+        "secp384r1" => @ext.secp384r1
+        "x448" => @ext.x448
+        "x25519mlkem768" => @ext.x25519mlkem768
+        _ => @ext.x25519
+      },
+    )
+  }
+  out
+}
+
+///|
+/// The versions the call names to offer, in its order: `versions=1,2` offers version 1 and takes
+/// version 2 if the peer has nothing else.
+fn versions_of(options : Map[String, String]) -> Array[UInt32] {
+  match options.get("versions") {
+    Some(list) => {
+      let out : Array[UInt32] = []
+      for name in list.split(",") {
+        match name {
+          "2" => out.push(@packet.version2)
+          _ => out.push(@packet.version1)
+        }
+      }
+      out
+    }
+    None => @conn.Config::default().versions
+  }
 }
 
 ///|

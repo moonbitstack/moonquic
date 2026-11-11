@@ -22,6 +22,7 @@ async fn echo(
     entropy(8),
     scid,
     wall(),
+    cfg={ ..@conn.Config::default(), versions: versions_of(options), },
   ) catch {
     e => return fail("the client did not start: \{e}")
   }
