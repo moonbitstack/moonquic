@@ -529,3 +529,71 @@ test "a short header ends in its packet number, and its low bits say how long" {
     assert_eq(at, 4)
   }
 }
+
+///|
+test "a version 2 header numbers its packet types differently from version 1" {
+  // RFC 9369 §3.2: v2 rotates the four codes by one, so the same type is a different two-bit
+  // number under each version and a reader has to know the version before it knows the type.
+  let codes = (version : UInt32) => {
+    let out : Array[Int32] = []
+    for kind in [Kind::Initial, Kind::ZeroRtt, Kind::Handshake, Kind::Retry] {
+      out.push(kind.code(version))
+    }
+    out
+  }
+  assert_eq(codes(version1), [0, 1, 2, 3])
+  assert_eq(codes(version2), [1, 2, 3, 0])
+  for version in [version1, version2] {
+    for kind in [Kind::Initial, Kind::ZeroRtt, Kind::Handshake, Kind::Retry] {
+      assert_eq(Kind::of(version, kind.code(version)), kind)
+    }
+  }
+}
+
+///|
+test "a version 2 long header round-trips, and reads back as its own type" {
+  for kind in [Kind::Initial, Kind::ZeroRtt, Kind::Handshake, Kind::Retry] {
+    let h : Long = {
+      packet_type: kind,
+      type_specific: 0,
+      version: version2,
+      dcid: qv_hexb("8394c8f03e515708"),
+      scid: qv_hexb("f067a550"),
+    }
+    let bytes = encode_long(h)
+    // The version's own codes are on the wire: a reader that assumed version 1 would name a
+    // different type for three of the four.
+    assert_eq((bytes[0].to_int() >> 4) & 0x03, kind.code(version2))
+    guard read_long(bytes[:]) is Some((got, at)) else {
+      fail("a version 2 header should parse")
+    }
+    assert_eq(got.packet_type, kind)
+    assert_eq(got.version, version2)
+    assert_eq(got.dcid, h.dcid)
+    assert_eq(got.scid, h.scid)
+    assert_eq(at, bytes.length())
+  }
+}
+
+///|
+test "a Retry under version 2 reads as a Retry, which is version 1's Initial code" {
+  // The two versions disagree exactly here: 0b00 is a Retry in v2 and an Initial in v1, so a
+  // reader that ignored the version would read the packet as the wrong type.
+  let h : Long = {
+    packet_type: Kind::Retry,
+    type_specific: 0,
+    version: version2,
+    dcid: qv_hexb("8394c8f03e515708"),
+    scid: qv_hexb("f067a5502a4262b5"),
+  }
+  let packet = retry(
+    h,
+    token=qv_hexb("746f6b656e"),
+    tag=Bytes::make(16, b'\x00'),
+  )
+  guard read_retry(packet[:]) is Some((got, token, _)) else {
+    fail("a version 2 Retry should parse")
+  }
+  assert_eq(got.packet_type, Kind::Retry)
+  assert_eq(token, qv_hexb("746f6b656e"))
+}

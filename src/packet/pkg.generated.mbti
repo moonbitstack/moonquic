@@ -39,6 +39,10 @@ pub fn read_versions(BytesView) -> (Bytes, Bytes, Array[UInt32])?
 
 pub fn retry(Long, token~ : Bytes, tag~ : Bytes) -> Bytes
 
+pub let version1 : UInt32
+
+pub let version2 : UInt32
+
 pub fn versions(dcid~ : Bytes, scid~ : Bytes, ArrayView[UInt32], first? : Int32) -> Bytes
 
 // Errors
@@ -60,8 +64,10 @@ pub(all) enum Kind {
   Handshake
   Retry
 }
+pub fn Kind::code(Self, UInt32) -> Int32
 pub fn Kind::equal(Self, Self) -> Bool
 pub fn Kind::not_equal(Self, Self) -> Bool
+pub fn Kind::of(UInt32, Int32) -> Self
 pub fn Kind::to_repr(Self) -> @debug.Repr
 
 #derive(Eq, @debug.Debug)

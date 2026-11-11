@@ -8,8 +8,16 @@
 // on top of the varint and packet-number primitives.
 
 ///|
-/// The four long-header packet types (RFC 9000 §17.2), in the encoding of the
-/// first byte's type bits: Initial 0, 0-RTT 1, Handshake 2, Retry 3.
+/// QUIC version 1 (RFC 9000 §15).
+pub let version1 : UInt32 = 1U
+
+///|
+/// QUIC version 2 (RFC 9369 §3): the version number is the first four bytes of the SHA-256 of the
+/// string "QUICv2 version number", so no decimal 2 appears on the wire.
+pub let version2 : UInt32 = 0x6b3343cfU
+
+///|
+/// The four long-header packet types (RFC 9000 §17.2).
 #derive(Eq, Debug)
 pub(all) enum Kind {
   Initial
@@ -33,13 +41,34 @@ pub(all) struct Long {
 }
 
 ///|
-/// The first byte's 2-bit type code for a packet type.
-fn code_of(t : Kind) -> Int32 {
-  match t {
+/// The first byte's 2-bit type code for a packet type under `version` (RFC 9000 §17.2, RFC 9369
+/// §3.2). Version 1 numbers the four types Initial 0, 0-RTT 1, Handshake 2, Retry 3; version 2
+/// rotates them by one, so a middlebox that learned one version's numbers rejects the other's
+/// rather than guessing. A version this library does not know is written with version 1's codes,
+/// which is what a version-independent header — a Version Negotiation packet — leaves unread.
+pub fn Kind::code(self : Kind, version : UInt32) -> Int32 {
+  let v1 = match self {
     Initial => 0
     ZeroRtt => 1
     Handshake => 2
     Retry => 3
+  }
+  if version == version2 {
+    (v1 + 1) & 0x03
+  } else {
+    v1
+  }
+}
+
+///|
+/// The packet type a 2-bit code names under `version`, the inverse of `Kind::code`.
+pub fn Kind::of(version : UInt32, code : Int32) -> Kind {
+  let base = if version == version2 { (code + 3) & 0x03 } else { code }
+  match base {
+    0 => Initial
+    1 => ZeroRtt
+    2 => Handshake
+    _ => Retry
   }
 }
 
@@ -48,7 +77,9 @@ fn code_of(t : Kind) -> Int32 {
 /// 4 type-specific bits), the version big-endian, then each connection ID prefixed
 /// by its one-byte length.
 pub fn encode_long(h : Long) -> Bytes {
-  let first = 0xc0 | (code_of(h.packet_type) << 4) | (h.type_specific & 0x0f)
+  let first = 0xc0 |
+    (h.packet_type.code(h.version) << 4) |
+    (h.type_specific & 0x0f)
   let buf = Buffer()
   buf.write_byte(first.to_byte())
   @fixed.write_u32(buf, h.version)
@@ -72,14 +103,11 @@ pub fn read_long(b : BytesView) -> (Long, Int32)? {
   if (first & 0x80) == 0 {
     return None
   }
-  let packet_type = match (first >> 4) & 0x03 {
-    0 => Kind::Initial
-    1 => ZeroRtt
-    2 => Kind::Handshake
-    _ => Retry
-  }
-  let type_specific = first & 0x0f
   guard @fixed.read_u32(b, at=1) is Some(version) else { return None }
+  // The version decides the type codes, so it is read before the type is (RFC 8999 §5.1 makes
+  // the two-bit type a version-specific field).
+  let packet_type = Kind::of(version, (first >> 4) & 0x03)
+  let type_specific = first & 0x0f
   let mut off = 5
   if b.length() < off + 1 {
     return None
@@ -151,7 +179,7 @@ pub fn Long::header(
 ) -> Bytes {
   let h = self
   let first = 0xc0 |
-    (code_of(h.packet_type) << 4) |
+    (h.packet_type.code(h.version) << 4) |
     ((number.length() - 1) & 0x03)
   let buf = Buffer()
   buf.write_byte(first.to_byte())

@@ -120,9 +120,9 @@ pub fn chacha_mask(hp : Bytes, sample : BytesView) -> Bytes {
 /// The constants a QUIC version fixes (RFC 9001 §5.2, §5.8): the Initial salt, the four
 /// HKDF labels, and the key and nonce a Retry's integrity tag is computed under.
 ///
-/// The preset is version 1. RFC 9369 changes every one of them for version 2, which is
-/// a record away; this library ships no version-2 constants because it has not checked
-/// them against that RFC.
+/// The preset is version 1. RFC 9369 changes every one of them for version 2 — the salt and the
+/// Retry key and nonce by its §3.3, and all four labels by prefixing them with `quicv2 ` — which
+/// is why a version is a value here and not a constant in the code.
 #derive(Eq, Debug)
 pub(all) struct Version {
   salt : Bytes
@@ -144,6 +144,32 @@ pub let version : Version = {
   ku: b"quic ku",
   retry: b"\xbe\x0c\x69\x0b\x9f\x66\x57\x5a\x1d\x76\x6b\x54\xe3\x68\xc8\x4e",
   nonce: b"\x46\x15\x99\xd3\x5d\x63\x2b\xf2\x23\x98\x25\xbb",
+}
+
+///|
+/// QUIC version 2 (RFC 9369 §3.3, Appendix A.5): a different Initial salt, four labels with `v2`
+/// in front of the word they carry, and a Retry tag under its own key and nonce.
+pub let version2 : Version = {
+  salt: b"\x0d\xed\xe3\xde\xf7\x00\xa6\xdb\x81\x93\x81\xbe\x6e\x26\x9d\xcb\xf9\xbd\x2e\xd9",
+  key: b"quicv2 key",
+  iv: b"quicv2 iv",
+  hp: b"quicv2 hp",
+  ku: b"quicv2 ku",
+  retry: b"\x8f\xb4\xb0\x1b\x56\xac\x48\xe2\x60\xfb\xcb\xce\xad\x7c\xcc\x92",
+  nonce: b"\xd8\x69\x69\xbc\x2d\x7c\x6d\x99\x90\xef\xb0\x4a",
+}
+
+///|
+/// The constants of the version a long header carries, or `None` for a version this library does
+/// not speak — the answer that decides whether a first flight can be read at all.
+pub fn Version::of(number : UInt32) -> Version? {
+  if number == @packet.version1 {
+    Some(version)
+  } else if number == @packet.version2 {
+    Some(version2)
+  } else {
+    None
+  }
 }
 
 ///|
