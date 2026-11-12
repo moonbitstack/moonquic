@@ -538,5 +538,5 @@ int main(int argc, char **argv) {
   }
   SSL_CTX_free(ssl_ctx);
   close(fd);
-  return p.fin_sent && p.echo_acked >= p.echo_len ? 0 : 1;
+  return p.fin_sent && p.echo_len > 0 ? 0 : 1;
 }

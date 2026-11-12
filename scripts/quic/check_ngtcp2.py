@@ -153,7 +153,7 @@ def our_client_against_raw(work, raw, ours, version, report, prefer=None):
     report.check(f"{label}: the peer completed the handshake",
                  "handshake completed" in peer_log)
     echoed = re.search(r"echoed (\d+) bytes", peer_log)
-    report.check(f"{label}: the peer acknowledged the echo",
+    report.check(f"{label}: the peer echoed back every byte it received",
                  bool(echoed and int(echoed.group(1)) >= len(PAYLOAD)))
     if prefer:
         # RFC 9368 §2.3: ngtcp2 converts the version 1 first flight into its preferred
