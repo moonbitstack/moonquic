@@ -130,6 +130,12 @@ assert_eq(@packet.Kind::Initial.code(@packet.version2), 1)
   handshake settled on. A mismatch closes the connection with `VERSION_NEGOTIATION_ERROR` (0x11).
 - **A client that acted on a Version Negotiation packet restarts**, and `Client::versions` says what
   the packet offered. The restart keeps the connection id and the packet numbers, and drops early
-  data: RFC 9368 §4.1 does not let a client send 0-RTT in a version it negotiated to.
+  data: RFC 9368 §7.3 leaves a compatible negotiation free to reject 0-RTT, which is what this library does.
+- **A server may convert a first flight.** With `versions: [version2, version1]`, a server reads
+  the client's `version_information` before it starts the TLS connection, picks version 2, re-derives
+  both directions' Initial keys, and answers in version 2 — no Version Negotiation packet. Its own
+  `version_information` names the version it chose. A client that offers only its Chosen Version
+  disables this, and a parameter that does not parse closes the connection (RFC 9368 §2.3, §4).
 - **A server's connection keeps its version for life.** A packet naming another version is not that
-  connection's traffic, so a migration does not change it.
+  connection's traffic, so a migration does not change it. The one exception is an Initial packet
+  still carrying the first flight's version, readable until the handshake is confirmed.

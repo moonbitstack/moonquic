@@ -264,6 +264,14 @@ assert_eq(
         a version the client also offered, the client adopts it without a round trip. Either way the
         version the handshake settled on is checked against the peer's own list, and a mismatch ends
         the connection with <code>VERSION_NEGOTIATION_ERROR</code> (0x11).</p>
+      <p>A server does not have to leave the client's choice alone. Put
+        <code>[@packet.version2, @packet.version1]</code> in <code>Config.versions</code> and it
+        reads the first flight's list before the handshake starts, selects version 2, re-derives
+        both directions' Initial keys and answers in version 2. The client learns the negotiated
+        version from the long headers and adopts it; there is no Version Negotiation packet and no
+        extra round trip (RFC 9368 §2.3). A client that offers only its Chosen Version keeps the
+        handshake in that version, and a <code>version_information</code> that does not parse closes
+        the connection.</p>
 
       <h2 id="time">Time and loss</h2>
       <p>Nothing moves without <code>tick</code>. It runs the probe timeout on each handshake level,
