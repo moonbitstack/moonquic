@@ -115,14 +115,16 @@ fn tls_level(level : Level) -> @tls.Level {
 }
 
 ///|
-/// The transport parameters this server declares for a connection (RFC 9000 §18.2).
-fn declared(
+/// The transport parameters this server declares for a connection (RFC 9000 §18.2), except
+/// `version_information`. A server does not know its Chosen Version until the client's
+/// ClientHello has been read (RFC 9368 §2.3), so that one parameter is appended afterwards by
+/// `declared_for`; everything else is fixed when the connection is opened.
+fn declared_base(
   cfg : Config,
   original : Bytes,
   cid : Bytes,
   token : Bytes,
   retry~ : Bytes?,
-  version~ : UInt32 = @packet.version1,
 ) -> Bytes {
   let limits = Limits::new(
     idle_timeout=(cfg.idle_timeout / 1000L).reinterpret_as_uint64(),
@@ -149,10 +151,6 @@ fn declared(
   }
   // Without this a reset this endpoint sends means nothing to the peer (RFC 9000 §10.3).
   params.push({ kind: StatelessResetToken, value: token, })
-  // RFC 9368 §3: the version this connection speaks and the ones this deployment would take.
-  // It is what a client checks a negotiation against, so it travels under the handshake's own
-  // authentication rather than in a packet anyone could write.
-  params.push(version_information(version, cfg.versions[:]))
   encode(params[:])
 }
 
@@ -233,6 +231,18 @@ fn[A] Session::feed_crypto(
         )
     }
   }
+  self.drain_steps(tls, now)
+}
+
+///|
+/// Do what the handshake has asked since the last call: CRYPTO bytes to send at a level, keys
+/// to install, and the HANDSHAKE_DONE that ends the server's handshake. Shared by the ordinary
+/// CRYPTO path and by the first flight, which starts the handshake later than the connection.
+fn[A] Session::drain_steps(
+  self : Session[A],
+  tls : @tls.Conn,
+  now : Int64,
+) -> Unit {
   for step in tls.steps() {
     match step {
       Send(Initial, data) => self.initial_out.write(data)
@@ -264,6 +274,101 @@ fn[A] Session::feed_crypto(
 }
 
 ///|
+/// Reassemble the client's first flight before the TLS connection exists, and start the
+/// handshake once the ClientHello is whole (RFC 9368 §2.3). Everything the CRYPTO stream has
+/// given us is kept in order and handed to the handshake in one call when it opens: the
+/// transport parameters that decide the version are in that ClientHello, and the handshake
+/// writes its own `version_information` into EncryptedExtensions from the decision.
+fn[A] Session::on_first_crypto(
+  self : Session[A],
+  frames : Array[@frame.Frame],
+  pn : Int64,
+  now : Int64,
+) -> Unit {
+  self.core.conn.on_packet_received(
+    Level::Initial,
+    pn,
+    @packet.payload_elicits_ack(frames),
+  )
+  for frame in frames {
+    guard frame is Crypto(offset~, data~) else { continue }
+    let ready = self.core.conn.on_crypto_frame(Level::Initial, offset, data) catch {
+      _ => return self.close(crypto_buffer_exceeded, b"", now)
+    }
+    self.first_flight.write_bytes(ready)
+  }
+  let buffered = self.first_flight.to_bytes()
+  match client_version_information(buffered[:]) {
+    Incomplete =>
+      // A ClientHello may span Initial packets. Bound what a peer can make us hold before it
+      // finishes one (RFC 9000 §4.5).
+      if buffered.length() > 65536 {
+        return self.close(crypto_buffer_exceeded, b"", now)
+      }
+    Absent => self.begin_handshake(self.first_version, now)
+    Malformed =>
+      // §4: a parameter that does not parse closes the connection; version 1 names the
+      // transport error it uses, every other version uses the version negotiation error.
+      return self.close(
+        if self.first_version == @packet.version1 {
+          transport_parameter_error
+        } else {
+          version_negotiation_error
+        },
+        b"malformed version_information",
+        now,
+      )
+    Present(chosen, available) => {
+      // §4: Chosen Version has to be the version the first flight was carried in, and it has
+      // to appear in the client's own Available Versions. Otherwise a middlebox could have
+      // rewritten the list on the way.
+      if chosen != self.first_version || !available.contains(chosen) {
+        return self.close(version_negotiation_error, b"chosen version", now)
+      }
+      self.begin_handshake(choose_version(self.cfg, chosen, available), now)
+    }
+  }
+}
+
+///|
+/// Open the handshake in `version`: convert the first flight, re-derive both directions'
+/// Initial keys, declare the chosen version, and feed everything received so far to TLS.
+fn[A] Session::begin_handshake(
+  self : Session[A],
+  version : UInt32,
+  now : Int64,
+) -> Unit {
+  guard self.pending is Some(p) else { return }
+  if version != self.first_version {
+    // A client that has not yet seen our answer may still be sending Initial packets in the
+    // version it started in; those keys stay readable until the handshake is confirmed, while
+    // everything this server sends from now on is in the Negotiated Version (§2.3).
+    self.initial_rx_other = Some(self.core.initial_keys)
+    self.core.convert_to(version)
+    self.version = version
+    self.constants = @crypto.Version::of(version).unwrap()
+  }
+  let tls = @tls.Conn::quic_server(
+    p.config,
+    params=declared_for(p.base, version, self.cfg.versions[:]),
+    rand=p.rand,
+    now?=p.wall,
+  )
+  self.tls = Some(tls)
+  self.pending = None
+  let buffered = self.first_flight.to_bytes()
+  tls.crypto(tls_level(Level::Initial), buffered[:]) catch {
+    @alert.Alert(kind~, ..) =>
+      return self.close(
+        crypto_error + kind.code().to_uint64(),
+        b"TLS alert",
+        now,
+      )
+  }
+  self.drain_steps(tls, now)
+}
+
+///|
 /// Take the client's transport parameters from the handshake, holding them to the connection id
 /// it actually used (RFC 9000 §7.3).
 fn[A] Session::adopt_declared(
@@ -279,14 +384,15 @@ fn[A] Session::adopt_declared(
     Some(fault) => return self.close(fault.code, fault.reason, now)
     None => ()
   }
-  // RFC 9368 §3: a client's own choice of version is in its parameters. One that names a
-  // version other than the one its first flight carried is a handshake that does not add up.
+  // RFC 9368 §4: the client's Chosen Version is the version its first flight was carried in,
+  // not the version this connection later settled on — a compatible negotiation changes the
+  // latter, not the former.
   match find(params[:], VersionInformation) {
     Some(p) =>
       match read_version_information(p.value[:]) {
         Some((chosen, _)) =>
-          if chosen != self.version {
-            return self.close(transport_parameter_error, b"", now)
+          if chosen != self.first_version {
+            return self.close(version_negotiation_error, b"chosen version", now)
           }
         None => return self.close(transport_parameter_error, b"", now)
       }

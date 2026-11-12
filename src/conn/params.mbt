@@ -115,6 +115,10 @@ pub fn read_version_information(value : BytesView) -> (UInt32, Array[UInt32])? {
   let versions : Array[UInt32] = []
   for at = 0; at < value.length(); at = at + 4 {
     guard @fixed.read_u32(value, at~) is Some(version) else { break }
+    // §4: version zero is a parsing failure, not a version.
+    if version == 0U {
+      return None
+    }
     versions.push(version)
   }
   let chosen = versions.remove(0)

@@ -194,10 +194,20 @@ pub struct Session[A] {
   cid : Bytes
   mut peer_cid : Bytes
   /// The QUIC version this connection speaks: the client's chosen version when this server offers
-  /// it, and the one a negotiated switch settles on (RFC 9368 §4.1).
-  version : UInt32
+  /// it, and the Negotiated Version a compatible switch settles on (RFC 9368 §2.3).
+  mut version : UInt32
+  /// The version the client's first flight was carried in. A client's `version_information`
+  /// names this one, even when the connection has since moved to another (§4).
+  first_version : UInt32
   /// That version's constants — its salt, labels and Retry key (RFC 9369 §3.3).
-  constants : @crypto.Version
+  mut constants : @crypto.Version
+  /// The client Initial keys of the first flight's version, kept until the handshake is
+  /// confirmed: a client that has not yet seen the switch can still be sending in it (§2.3).
+  mut initial_rx_other : @crypto.Keys?
+  /// What opens the handshake once the first flight has been read, and the CRYPTO bytes held
+  /// until then. Both are empty on a connection whose handshake was handed in by its caller.
+  priv mut pending : Pending?
+  priv first_flight : Buffer
   core : Server
   sender : Sender
   cfg : Config
@@ -218,7 +228,7 @@ pub struct Session[A] {
   mut hs_tx : @crypto.Keys?
   mut app_rx : @crypto.Keys?
   mut app_tx : @crypto.Keys?
-  priv tls : @tls.Conn?
+  priv mut tls : @tls.Conn?
   streams : @stream.Streams
   priv events : Array[Event]
   priv datagrams : Array[Bytes]
@@ -269,6 +279,7 @@ fn[A] Session::new(
   original~ : Bytes = cid,
   initial? : Bytes,
   tls? : @tls.Conn,
+  pending~ : Pending? = None,
   version~ : UInt32 = @packet.version1,
 ) -> Session[A] {
   // The Initial keys come from the Destination Connection ID of the packet that arrived, which
@@ -293,7 +304,11 @@ fn[A] Session::new(
     cid,
     peer_cid,
     version,
+    first_version: version,
     constants: @crypto.Version::of(version).unwrap(),
+    initial_rx_other: None,
+    pending,
+    first_flight: Buffer(),
     core,
     sender,
     cfg,
@@ -374,6 +389,14 @@ pub fn[A] Session::peer(self : Session[A]) -> A {
 /// The connection id the peer addresses this server by — the table's key.
 pub fn[A] Session::cid(self : Session[A]) -> Bytes {
   self.cid
+}
+
+///|
+/// The QUIC version this connection settled on, as its long headers and its own
+/// `version_information` name it (RFC 9368 §4). A server that converted a first flight may
+/// answer in a version other than the one the client sent it in.
+pub fn[A] Session::negotiated_version(self : Session[A]) -> UInt32 {
+  self.version
 }
 
 ///|
@@ -694,7 +717,10 @@ fn[A] Session::next_datagram(self : Session[A], now : Int64) -> Bytes? raise {
 /// data — into the outbound queue (RFC 9002 §7).
 fn[A] Session::fill(self : Session[A], now : Int64) -> Unit raise {
   guard self.phase == Active else { return }
-  if self.tls is Some(_) {
+  // A connection still reading a client's first flight has no TLS connection yet, but it owes
+  // ACKs for the Initial packets it has read; RFC 9368 §2.3 explicitly lets a server answer
+  // those before it switches to the Negotiated Version. `assemble` needs no TLS connection.
+  if self.tls is Some(_) || self.pending is Some(_) {
     return self.assemble(now)
   }
   guard self.app_tx is Some(_) else { return }
@@ -795,6 +821,27 @@ fn[A] Session::admit(
 }
 
 ///|
+
+///|
+/// The keys a client Initial packet opens under. After a compatible negotiation this
+/// connection speaks another version, but a packet still carrying the first flight's version
+/// was protected under that version's keys, so it stays readable until the handshake is
+/// confirmed (RFC 9368 §2.3).
+fn[A] Session::initial_keys_for(
+  self : Session[A],
+  datagram : Bytes,
+) -> @crypto.Keys {
+  if self.initial_rx_other is Some(keys) {
+    match @packet.read_header(datagram) {
+      Some((h, _)) if h.version == self.first_version && !self.confirmed =>
+        return keys
+      _ => ()
+    }
+  }
+  self.core.initial_keys
+}
+
+///|
 fn[A] Session::on_initial(
   self : Session[A],
   datagram : Bytes,
@@ -802,9 +849,10 @@ fn[A] Session::on_initial(
 ) -> Unit raise {
   guard !self.initial_gone else { return }
   let space = self.core.conn.space(Level::Initial)
+  let keys = self.initial_keys_for(datagram)
   let opened : (Array[@frame.Frame], Int64)? = recv_long(
     datagram,
-    self.core.initial_keys,
+    keys,
     largest=space.largest_received(),
   ) catch {
     // The payload authenticated but its frames do not parse: RFC 9000 §12.4 closes for that.
@@ -821,16 +869,20 @@ fn[A] Session::on_initial(
     Some((_, tail)) => tail.at
     None => return
   }
-  if reserved_set(datagram, self.core.initial_keys, at, short=false) {
+  if reserved_set(datagram, keys, at, short=false) {
     return self.close(protocol_violation, b"reserved bits set", now)
   }
   guard self.admit(Level::Initial, frames, now) else { return }
-  match self.tls {
-    Some(tls) => self.on_crypto(tls, Level::Initial, frames, pn, now)
-    None => {
-      let _ = self.core.on_frames(Level::Initial, frames, pn)
-      self.adopt_peer_params()
-    }
+  match self.pending {
+    Some(_) => self.on_first_crypto(frames, pn, now)
+    None =>
+      match self.tls {
+        Some(tls) => self.on_crypto(tls, Level::Initial, frames, pn, now)
+        None => {
+          let _ = self.core.on_frames(Level::Initial, frames, pn)
+          self.adopt_peer_params()
+        }
+      }
   }
   self.on_frames(Level::Initial, frames, now)
 }
@@ -1079,7 +1131,9 @@ fn[A] Session::on_frames(
   }
   // With a TLS server the datagram builder picks ACKs up, so they share a packet with what is
   // going out anyway.
-  if !live && self.core.conn.space(level).ack_pending() {
+  // A connection still reading a first flight has no TLS connection, but `assemble` builds its
+  // ACKs into a padded Initial datagram; sending one here would be a separate unpadded packet.
+  if !live && self.pending is None && self.core.conn.space(level).ack_pending() {
     match self.core.conn.build_ack(level, 0UL) {
       Some(ack) => self.send(level, [ack])
       None => ()

@@ -111,7 +111,7 @@ pub struct Client {
   /// Negotiation packet left it with (RFC 9000 §6.2).
   mut version : UInt32
   /// The version the first flight went out in. A peer that negotiated compatibly still accepts
-  /// Initial packets under it, so its keys are kept (RFC 9368 §4.1).
+  /// Initial packets under it, so its keys are kept (RFC 9368 §2.3).
   mut sent_version : UInt32
   /// The version's constants — salt, labels, Retry key (RFC 9369 §3.3).
   mut constants : @crypto.Version
@@ -911,7 +911,7 @@ pub fn Client::recv_on(
 }
 
 ///|
-/// Whether a long header's version is one this connection may read (RFC 9368 §4.1). The version
+/// Whether a long header's version is one this connection may read (RFC 9368 §2.3). The version
 /// this client sends, and — until the handshake is confirmed — the one the first flight went out
 /// in, since a peer that converted keeps answering Initial packets under it for a while.
 fn Client::accepts(self : Client, version : UInt32) -> Bool {
@@ -925,7 +925,7 @@ fn Client::accepts(self : Client, version : UInt32) -> Bool {
 ///|
 /// The keys a server's Initial packet under `version` opens with. The version this connection
 /// speaks has its keys installed; another version this client offered yields them from the same
-/// connection id, which is what a peer that converted sends under (RFC 9368 §4.1).
+/// connection id, which is what a peer that converted sends under (RFC 9368 §2.3).
 fn Client::initial_rx_for(self : Client, version : UInt32) -> @crypto.Keys? {
   if version == self.version {
     return Some(self.initial_rx)
@@ -973,7 +973,7 @@ fn Client::on_retry(self : Client, packet : Bytes, h : @packet.Long) -> Unit {
   self.retry_scid = Some(h.scid)
   self.server_scid = h.scid
   self.seen_server_cid = true
-  // A Retry has to carry the version of the first flight it answers (RFC 9368 §4.1), so the keys
+  // A Retry has to carry the version of the first flight it answers (RFC 9368 §7.1), so the keys
   // that replace the old ones are that version's.
   let constants = @crypto.Version::of(self.sent_version).unwrap()
   let (tx, rx) = @crypto.initial(h.scid[:], version=constants)
@@ -1031,7 +1031,7 @@ fn Client::pick_version(self : Client, offered : ArrayView[UInt32]) -> UInt32? {
 ///|
 /// Start again in `version` after a Version Negotiation packet (RFC 9368 §2.1): the same
 /// connection id, a first flight under that version's Initial keys, and the packet numbers
-/// carrying on where they were. Early data goes: §4.1 does not let a client send 0-RTT in a
+/// carrying on where they were. Early data goes: §7.3 in a
 /// version it negotiated to.
 fn Client::restart(self : Client, version : UInt32) -> Unit raise {
   let constants = match @crypto.Version::of(version) {
@@ -1079,7 +1079,7 @@ fn Client::adopt_version(self : Client, version : UInt32) -> Unit {
     None => return
   }
   // What the first flight went out under stays readable until the handshake is confirmed
-  // (RFC 9368 §4.1), and what this client sends from now on is the negotiated version.
+  // (RFC 9368 §2.3), and what this client sends from now on is the negotiated version.
   self.initial_rx_other = Some(self.initial_rx)
   self.initial_rx = @crypto.initial(self.salt_dcid[:], version=constants).1
   self.initial_tx = @crypto.initial(self.salt_dcid[:], version=constants).0
@@ -1117,7 +1117,7 @@ fn Client::on_long(
   }
   guard opened is Some((frames, pn)) else { return }
   // The packet authenticated under its own version's keys, so the version it names is the one the
-  // peer is answering in: this is where a compatible negotiation lands (RFC 9368 §4.1).
+  // peer is answering in: this is where a compatible negotiation lands (RFC 9368 §2.3).
   self.adopt_version(h.version)
   if self.seen_server_cid && h.scid != self.server_scid {
     // RFC 9000 §7.2: after the first authenticated packet, another source id is another
@@ -1318,6 +1318,14 @@ pub fn Client::suite_code(self : Client) -> Int32 {
 /// The connection id the client addresses the server by — the server's, once it has named it.
 pub fn Client::server_cid(self : Client) -> Bytes {
   self.dcid
+}
+
+///|
+/// The QUIC version this connection settled on. It can differ from the version the first flight
+/// went out in: a server that converted that flight (RFC 9368 §2.3) answers in its own preferred
+/// version, which this client reads off the long headers and adopts.
+pub fn Client::negotiated_version(self : Client) -> UInt32 {
+  self.version
 }
 
 ///|

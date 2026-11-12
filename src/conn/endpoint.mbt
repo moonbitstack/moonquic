@@ -129,19 +129,21 @@ fn[A] Endpoint::open(
         Some(named) => named
         None => self.fresh_cid()
       }
-      let tls = @tls.Conn::quic_server(
+      let pending : Pending = {
         config,
-        params=declared(
+        rand: self.rand,
+        wall,
+        // Everything except `version_information`: its Chosen Version is decided from the
+        // client's ClientHello, which has not arrived yet (RFC 9368 §2.3).
+        base: declared_base(
           self.cfg,
           original,
           cid,
           reset_token(self.reset_key, cid),
           retry~,
-          version=h.version,
         ),
-        rand=self.rand,
-        now?=wall,
-      )
+      }
+      let deferred : Pending? = Some(pending)
       let c = Session::new(
         from,
         cid,
@@ -150,7 +152,7 @@ fn[A] Endpoint::open(
         now,
         original~,
         initial=h.dcid,
-        tls~,
+        pending=deferred,
         version=h.version,
       )
       self.conns[cid] = c
@@ -184,7 +186,11 @@ fn[A] Endpoint::retry_client(
   let body = Buffer()
   body.write_bytes(@packet.encode_long(out))
   body.write_bytes(token)
-  let tag = @crypto.retry_tag(body.to_bytes()[:], h.dcid[:])
+  let tag = @crypto.retry_tag(
+    body.to_bytes()[:],
+    h.dcid[:],
+    version=@crypto.Version::of(h.version).unwrap(),
+  )
   self.stateless.push((@packet.retry(out, token~, tag~), from))
 }
 
@@ -246,9 +252,11 @@ pub fn[A : Eq] Endpoint::recv(
       }
       match self.find(h.dcid) {
         Some(c) => {
-          // A connection speaks the version it answered in; a packet naming another is not its
-          // traffic (RFC 9368 §4.1).
-          if h.version != c.version {
+          // A connection speaks the version it answered in. The first flight's version stays
+          // readable until the handshake is confirmed: a compatible negotiation may have moved
+          // the connection on before the client saw the answer (RFC 9368 §2.3).
+          if h.version != c.version &&
+            !(h.version == c.first_version && !c.confirmed) {
             return
           }
           c

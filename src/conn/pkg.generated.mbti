@@ -149,6 +149,7 @@ pub fn Client::early_accepted(Self) -> Bool
 pub fn Client::finished(Self, UInt64) -> Bool
 pub fn Client::install_zero_rtt(Self, @crypto.Keys) -> Unit
 pub fn Client::is_connected(Self) -> Bool
+pub fn Client::negotiated_version(Self) -> UInt32
 pub fn Client::new(@tls.Client, String, Bytes, (Int32) -> Bytes, Bytes, Bytes, Int64, cfg? : Config, resumption? : Remembered) -> Self raise
 pub fn Client::next_cid(Self) -> Bool
 pub fn Client::open_stream(Self, UInt64) -> Bool
@@ -466,12 +467,13 @@ pub fn Sender::window(Self) -> Int64
 pub struct Server {
   dcid : Bytes
   mut version : UInt32
-  initial_keys : @crypto.Keys
+  mut initial_keys : @crypto.Keys
   mut reply_keys : @crypto.Keys
   handshake : @hs.Handshake
   conn : Conn
 }
 pub fn Server::client_hello(Self) -> Bytes
+pub fn Server::convert_to(Self, UInt32) -> Unit
 pub fn Server::handshake_state(Self) -> @hs.Server
 pub fn Server::initial_ack_pending(Self) -> Bool
 pub fn Server::negotiate(Self) -> @hs.Choice raise @alert.Alert
@@ -489,8 +491,10 @@ pub struct Session[A] {
   mut peer : A
   cid : Bytes
   mut peer_cid : Bytes
-  version : UInt32
-  constants : @crypto.Version
+  mut version : UInt32
+  first_version : UInt32
+  mut constants : @crypto.Version
+  mut initial_rx_other : @crypto.Keys?
   core : Server
   sender : Sender
   cfg : Config
@@ -530,6 +534,7 @@ pub fn[A] Session::install_app_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::install_handshake_keys(Self[A], Bytes, Bytes) -> Unit
 pub fn[A] Session::install_zero_rtt(Self[A], @crypto.Keys) -> Unit
 pub fn[A] Session::largest_acked(Self[A], Level) -> Int64?
+pub fn[A] Session::negotiated_version(Self[A]) -> UInt32
 pub fn[A] Session::open_uni(Self[A]) -> UInt64
 pub fn[A] Session::packets_received(Self[A]) -> Int32
 pub fn[A] Session::path_lane(Self[A], UInt64) -> Lane[A]?

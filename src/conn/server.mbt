@@ -17,7 +17,7 @@ pub struct Server {
   dcid : Bytes
   /// The version this endpoint's Initial packets are protected under (RFC 9369 §3.3).
   mut version : UInt32
-  initial_keys : @crypto.Keys
+  mut initial_keys : @crypto.Keys
   mut reply_keys : @crypto.Keys
   handshake : @hs.Handshake
   conn : Conn
@@ -43,9 +43,27 @@ pub fn Server::new(
 }
 
 ///|
+/// Convert the first flight into `version` (RFC 9368 §2.3): both directions' Initial keys are
+/// re-derived from the same connection id under that version's salt, and the long headers this
+/// endpoint writes from now on name that version. Version 1 and version 2 first flights differ
+/// only in these version-dependent constants, so nothing in the CRYPTO stream has to change.
+/// The caller keeps the old receive keys for Initial packets already on the wire.
+pub fn Server::convert_to(self : Server, version : UInt32) -> Unit {
+  guard self.version != version else { return }
+  let constants = match @crypto.Version::of(version) {
+    Some(constants) => constants
+    None => return
+  }
+  let (client, server) = @crypto.initial(self.dcid[:], version=constants)
+  self.initial_keys = client
+  self.reply_keys = server
+  self.version = version
+}
+
+///|
 /// Answer under `version` from now on: the reply keys are re-derived from the same connection id
 /// under that version's salt (RFC 9369 §3.3), which is what a version negotiated compatibly does
-/// to a server's own Initial packets (RFC 9368 §4.1). The keys the client's packets arrive under
+/// to a server's own Initial packets (RFC 9368 §2.3). The keys the client's packets arrive under
 /// are left alone, since it may still be sending the version it started with.
 pub fn Server::reply_as(self : Server, version : UInt32) -> Unit {
   guard self.version != version else { return }
