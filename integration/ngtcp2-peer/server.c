@@ -267,8 +267,8 @@ static int create_connection(struct peer *p, const ngtcp2_pkt_hd *hd,
   params.active_connection_id_limit = 3;
   params.original_dcid = hd->dcid;
   params.original_dcid_present = 1;
-  params.initial_scid = scid;
-  params.initial_scid_present = 1;
+  /* ngtcp2 fills initial_scid from the SCID passed to conn_server_new and asserts
+   * that an application did not set the field itself. */
 
   ngtcp2_path path = {
       {(struct sockaddr *)&p->local, p->local_len},
