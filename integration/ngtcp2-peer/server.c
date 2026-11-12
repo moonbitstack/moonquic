@@ -78,6 +78,7 @@ struct peer {
   int have_stream;
   int64_t stream_id;
   int fin_sent;
+  int acked_reported;
   int handshake_done;
   uint64_t finished_at;
 };
@@ -148,10 +149,9 @@ static int cb_acked_stream_data_offset(ngtcp2_conn *conn, int64_t stream_id,
   } else {
     p->echo_acked += datalen;
   }
-  if (p->fin_sent && p->echo_acked >= p->echo_len && !p->finished_at) {
-    say("echoed %zu bytes", p->echo_len);
-    /* Linger briefly so the peer's last ACK and anything in flight can land. */
-    p->finished_at = now_ns();
+  if (p->fin_sent && p->echo_acked >= p->echo_len && !p->acked_reported) {
+    p->acked_reported = 1;
+    say("echo acknowledged");
   }
   return 0;
 }
@@ -512,8 +512,13 @@ int main(int argc, char **argv) {
         }
         if (ndatalen > 0 && vcnt) {
           p.echo_sent += (size_t)ndatalen;
-          if (p.echo_sent >= p.echo_len) {
+          if (p.echo_sent >= p.echo_len && !p.fin_sent) {
             p.fin_sent = 1;
+            /* The client may close the socket as soon as the stream is complete
+             * without sending a final ACK, so the fact that all bytes left this
+             * peer is the report; an ACK, if it comes, is a separate line. */
+            say("echoed %zu bytes", p.echo_len);
+            p.finished_at = now;
           }
         }
         if (sendto(fd, out, (size_t)nwrite, 0,
