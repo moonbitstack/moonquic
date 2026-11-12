@@ -209,7 +209,7 @@ static void log_error(const char *what, int rv) {
 }
 
 static int create_connection(struct peer *p, const ngtcp2_pkt_hd *hd,
-                             SSL_CTX *ssl_ctx, uint32_t prefer) {
+                             SSL_CTX *ssl_ctx, uint32_t prefer, uint64_t now) {
   ngtcp2_callbacks cb = {0};
   cb.recv_client_initial = ngtcp2_crypto_recv_client_initial_cb;
   cb.recv_crypto_data = ngtcp2_crypto_recv_crypto_data_cb;
@@ -241,7 +241,10 @@ static int create_connection(struct peer *p, const ngtcp2_pkt_hd *hd,
   static uint32_t available[1];
   ngtcp2_settings settings;
   ngtcp2_settings_default(&settings);
-  settings.initial_ts = now_ns();
+  /* ngtcp2 asserts that every timestamp it sees is non-decreasing. Using the
+   * same instant for the connection's initial_ts and its first read_pkt keeps
+   * that true even though the connection is created inside the read path. */
+  settings.initial_ts = now;
   settings.handshake_timeout = 30 * NGTCP2_SECONDS;
   /* RFC 9368 §3: a server's Available Versions are the Fully Deployed ones. This peer only
    * fully deploys the version it was asked to speak, which is also what a client that
@@ -443,7 +446,7 @@ int main(int argc, char **argv) {
           p.remote = from;
           p.remote_len = from_len;
           say("version=0x%08x", (unsigned)hd.version);
-          if (create_connection(&p, &hd, ssl_ctx, prefer) != 0) {
+          if (create_connection(&p, &hd, ssl_ctx, prefer, now) != 0) {
             return 2;
           }
         }
