@@ -162,8 +162,16 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_TESTING=OFF
           cmake --build build -j $(nproc) --target osslclient
 
-      - name: ngtcp2 against this server, in both versions
+      # ngtcp2's examples are HTTP/3 servers, so the reverse direction needs a peer of our own:
+      # a small server on ngtcp2_conn_server_new that echoes a raw bidirectional stream under
+      # whatever ALPN the client offers. See integration/ngtcp2-peer/server.c.
+      - name: build the raw-stream ngtcp2 peer
+        run: make -C integration/ngtcp2-peer NGTCP2="$PWD/ngtcp2"
+
+      - name: ngtcp2 in both directions, in both versions
         run: |
+          client=$(find . -name "client*" -path "*moonquic-integration/client/*" -type f -perm -u+x | head -1)
           server=$(find . -name "server*" -path "*moonquic-integration/server/*" -type f -perm -u+x | head -1)
           python3 scripts/quic/check_ngtcp2.py \
-            --client ngtcp2/build/examples/osslclient --server "$server"
+            --client ngtcp2/build/examples/osslclient --server "$server" \
+            --raw-server integration/ngtcp2-peer/peer --our-client "$client"

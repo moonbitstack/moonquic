@@ -18,12 +18,16 @@ the `integration` module's client and server, built for native.
 
 import argparse
 import pathlib
+import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from interop_certs import write as write_certs
 
 
 def free_port():
@@ -125,6 +129,49 @@ def peer_client(work, version, report):
                  "echo moonquic-interop" in output)
 
 
+def converting_server(work, report):
+    """Our client starts in v1; our server prefers v2 and converts the first flight (§2.3)."""
+    where = work / "converted"
+    where.mkdir(parents=True, exist_ok=True)
+    certs = write_certs(where / "certs")
+    port = free_port()
+    log_path = where / "server.log"
+    log = log_path.open("w")
+    server = subprocess.Popen(
+        [str(work / "server"), "echo", str(port),
+         f"cert={certs}/cert.pem", f"key={certs}/key.pem", "versions=2,1"],
+        stdout=log, stderr=subprocess.STDOUT)
+    time.sleep(0.6)
+    try:
+        result = subprocess.run(
+            [str(work / "client"), "echo", "127.0.0.1", str(port),
+             f"ca={certs}/ca.pem", "name=localhost",
+             "payload=moonquic-interop", "versions=1,2"],
+            capture_output=True, text=True, timeout=40)
+    finally:
+        server.terminate()
+        server.wait(timeout=10)
+        log.close()
+    output = result.stdout + result.stderr
+    server_log = log_path.read_text()
+    print("  our client -> our server, v1 first flight converted to v2")
+    for line in output.strip().splitlines():
+        print(f"    {line}")
+    for line in server_log.strip().splitlines():
+        print(f"    server: {line}")
+    report.check("converted: the handshake finished", "alpn h3" in output)
+    report.check("converted: the server echoed the stream", "returned true" in output)
+    negotiated = re.search(r"version (\d+)", output)
+    report.check(
+        "converted: the client adopted the server's version 2",
+        bool(negotiated and int(negotiated.group(1)) == 0x6B3343CF),
+    )
+    # A Version Negotiation packet would have restarted the attempt; the client reports the
+    # versions it was offered, and there were none.
+    report.check("converted: no Version Negotiation packet was acted on",
+                 "offered versions" not in output.lower())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--peer", required=True, help="the built quic-go peer")
@@ -146,6 +193,9 @@ def main() -> int:
     # The client offers both and prefers version 1; the peer speaks only version 2, so the
     # exchange starts with a Version Negotiation packet and restarts in version 2.
     our_client(work, "2", "1,2", report)
+    # RFC 9368 §2.3 on a server: it reads the first flight's version_information, selects the
+    # version it prefers, and answers in it without a Version Negotiation packet.
+    converting_server(work, report)
 
     print()
     for label, ok in report.checks:

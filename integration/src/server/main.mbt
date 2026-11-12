@@ -4,6 +4,7 @@
 // A QUIC server over UDP, for the interop scripts to point another implementation at.
 //
 //     quic-server echo <port> cert=<pem> key=<pem> [alpn=h3] [version=1|2|both]
+//                    [versions=1,2]
 //
 // It prints `port <n>` once it is listening, then `version <number>` for each connection, so a
 // script asserts on facts rather than reading prose.
@@ -33,16 +34,28 @@ fn fail(message : String) -> Unit raise {
 }
 
 ///|
-/// The versions the call names, in the order it names them: one, or both with version 1 first.
+/// The versions the call names, in the order it names them. `versions=2,1` is how a test asks a
+/// server to prefer version 2 and still accept a version 1 first flight — the setup for RFC
+/// 9368 §2.3's compatible negotiation. `version=1|2|both` is the short form.
 fn versions_of(options : Map[String, String]) -> Array[UInt32] {
   let out : Array[UInt32] = []
-  match options.get("version") {
-    Some("2") => out.push(@packet.version2)
-    Some("both") => {
-      out.push(@packet.version1)
-      out.push(@packet.version2)
-    }
-    _ => out.push(@packet.version1)
+  match options.get("versions") {
+    Some(list) =>
+      for name in list.split(",") {
+        match name {
+          "2" => out.push(@packet.version2)
+          _ => out.push(@packet.version1)
+        }
+      }
+    None =>
+      match options.get("version") {
+        Some("2") => out.push(@packet.version2)
+        Some("both") => {
+          out.push(@packet.version1)
+          out.push(@packet.version2)
+        }
+        _ => out.push(@packet.version1)
+      }
   }
   out
 }
@@ -62,7 +75,7 @@ async fn main {
   let args = @env.args()
   guard args.length() >= 4 else {
     fail(
-      "usage: quic-server <echo> <port> cert=<pem> key=<pem> [alpn=h3] [version=1|2|both]",
+      "usage: quic-server <echo> <port> cert=<pem> key=<pem> [alpn=h3] [version=1|2|both] [versions=1,2]",
     )
   }
   let mode = args[1]
@@ -113,6 +126,7 @@ async fn main {
               session.write(id, data, fin=session.finished(id))
             }
           }
+          Connected => println("version \{session.negotiated_version()}")
           Closed(_) => ()
           _ => ()
         }

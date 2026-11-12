@@ -45,5 +45,8 @@ async fn echo(
   }
   println("echo \{@utf8.decode(answer.to_bytes())}")
   println("returned \{(answer.length() == request.length()).to_string()}")
+  // The version the handshake settled on. A server that converted the first flight answers in
+  // another version, and the scripts read this line rather than a server's buffered log.
+  println("version \{client.negotiated_version()}")
   socket.close()
 }
