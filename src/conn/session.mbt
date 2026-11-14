@@ -279,7 +279,7 @@ fn[A] Session::new(
   original~ : Bytes = cid,
   initial? : Bytes,
   tls? : @tls.Conn,
-  pending~ : Pending? = None,
+  pending? : Pending,
   version~ : UInt32 = @packet.version1,
 ) -> Session[A] {
   // The Initial keys come from the Destination Connection ID of the packet that arrived, which

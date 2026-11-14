@@ -152,7 +152,7 @@ fn[A] Endpoint::open(
         now,
         original~,
         initial=h.dcid,
-        pending=deferred,
+        pending?=deferred,
         version=h.version,
       )
       self.conns[cid] = c
