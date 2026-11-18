@@ -8,9 +8,9 @@
 /// cipher that turns a ciphertext sample into a header-protection mask.
 ///
 /// The preset is AEAD_AES_128_GCM with SHA-256, which §5.2 fixes for Initial packets
-/// and every space uses until TLS negotiates otherwise. `aes256` and `chacha20` are the
-/// other two; a suite beyond these is a `@spec.Aead` implementation away and needs no
-/// change here.
+/// and every space uses until TLS negotiates otherwise. `aes256`, `chacha20` and `ccm`
+/// are the others; a suite beyond these is a `@spec.Aead` implementation away and needs
+/// no change here.
 pub(all) struct Suite {
   digest : @keys.Digest
   key : Int32
@@ -36,6 +36,10 @@ pub let suite : Suite = {
 ///|
 /// AEAD_AES_256_GCM with SHA-384 (RFC 9001 §5.3).
 pub let aes256 : Suite = { ..suite, digest: Sha384, key: 32, hp: 32, }
+
+///|
+/// AEAD_AES_128_CCM with SHA-256 (RFC 9001 §5.3), under AES header protection (§5.4.3).
+pub let ccm : Suite = { ..suite, aead: aes_ccm, }
 
 ///|
 /// AEAD_CHACHA20_POLY1305 with SHA-256 (RFC 9001 §5.3, §5.4.4).
@@ -80,6 +84,17 @@ pub fn aes_gcm(key : Bytes) -> &@spec.Aead {
   }
   @gcm.Gcm::new(cipher) catch {
     _ => abort("moonquic: GCM refused the AES cipher")
+  }
+}
+
+///|
+/// AES-128-CCM with a sixteen-byte tag, the only CCM QUIC defines header protection for.
+pub fn aes_ccm(key : Bytes) -> &@spec.Aead {
+  let cipher = @aes.Cipher::new(key[:]) catch {
+    _ => abort("moonquic: \{key.length()} bytes is not an AES key")
+  }
+  @ccm.Ccm::new(cipher) catch {
+    _ => abort("moonquic: CCM refused the AES cipher")
   }
 }
 

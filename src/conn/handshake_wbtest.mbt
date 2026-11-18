@@ -57,7 +57,12 @@ fn leaf_key() -> @x509.PrivateKey raise {
 
 ///|
 fn tls_server(alpn~ : Array[String] = ["h3"]) -> @tls.Server raise {
-  @tls.Server::new([@x509.pem(leaf_pem)], leaf_key(), alpn~)
+  @tls.Server::new(
+    [@x509.pem(leaf_pem)],
+    leaf_key(),
+    alpn~,
+    suites=@tls.all_suites,
+  )
 }
 
 ///|
@@ -446,6 +451,7 @@ test "every cipher suite reaches 1-RTT" {
       @record.Suite::Aes128Gcm,
       @record.Suite::Aes256Gcm,
       @record.Suite::ChaCha20Poly1305,
+      @record.Suite::Aes128Ccm,
     ] {
     let server = new_server()
     let client = Peer::new(suites=[suite])

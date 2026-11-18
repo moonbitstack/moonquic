@@ -102,6 +102,10 @@ fn suite_of(suite : @record.Suite) -> @crypto.Suite {
     Aes128Gcm => @crypto.suite
     Aes256Gcm => @crypto.aes256
     ChaCha20Poly1305 => @crypto.chacha20
+    Aes128Ccm => @crypto.ccm
+    // RFC 9001 §5.3 defines no header protection for it, and moontls's QUIC entry points
+    // neither offer nor choose it, so a negotiated one is a broken invariant, not a peer.
+    Aes128Ccm8 => abort("moonquic: AES-128-CCM-8 was negotiated over QUIC")
   }
 }
 

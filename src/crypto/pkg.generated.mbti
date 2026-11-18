@@ -10,11 +10,15 @@ import {
 // Values
 pub let aes256 : Suite
 
+pub fn aes_ccm(Bytes) -> &@spec.Aead
+
 pub fn aes_gcm(Bytes) -> &@spec.Aead
 
 pub fn aes_mask(Bytes, BytesView) -> Bytes
 
 pub fn application(BytesView, BytesView, client~ : Bool, suite? : Suite, version? : Version) -> Keys
+
+pub let ccm : Suite
 
 pub let chacha20 : Suite
 

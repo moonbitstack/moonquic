@@ -18,5 +18,6 @@ import {
   "moonbitstack/mooncrypt/cipher/chacha20",
   "moonbitstack/mooncrypt/cipher/aes",
   "moonbitstack/mooncrypt/aead/gcm",
+  "moonbitstack/mooncrypt/aead/ccm",
   "moonbitstack/moonvar/fixed",
 }
