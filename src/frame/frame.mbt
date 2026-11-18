@@ -26,7 +26,7 @@ pub(all) enum Frame {
     largest~ : UInt64,
     delay~ : UInt64,
     first_range~ : UInt64,
-    ranges~ : Array[(UInt64, UInt64)]
+    ranges~ : Array[(UInt64, UInt64)],
   )
   // ACK_ECN (0x03) repeats the ACK body, then the ECT(0), ECT(1) and CE counts the peer
   // has seen on this path (RFC 9000 §19.3.2).
@@ -37,7 +37,7 @@ pub(all) enum Frame {
     ranges~ : Array[(UInt64, UInt64)],
     ect0~ : UInt64,
     ect1~ : UInt64,
-    ce~ : UInt64
+    ce~ : UInt64,
   )
   ResetStream(id~ : UInt64, error_code~ : UInt64, final_size~ : UInt64)
   StopSending(id~ : UInt64, error_code~ : UInt64)
@@ -53,7 +53,7 @@ pub(all) enum Frame {
     seq~ : UInt64,
     retire_prior_to~ : UInt64,
     conn_id~ : Bytes,
-    reset_token~ : Bytes
+    reset_token~ : Bytes,
   )
   RetireConnectionId(UInt64)
   PathChallenge(Bytes)
@@ -70,7 +70,7 @@ pub(all) enum Frame {
     largest~ : UInt64,
     delay~ : UInt64,
     first_range~ : UInt64,
-    ranges~ : Array[(UInt64, UInt64)]
+    ranges~ : Array[(UInt64, UInt64)],
   )
   // PATH_ACK of the ECN form (type 0x3f): the ACK body, then the three counts (§4.1).
   PathAckEcn(
@@ -81,7 +81,7 @@ pub(all) enum Frame {
     ranges~ : Array[(UInt64, UInt64)],
     ect0~ : UInt64,
     ect1~ : UInt64,
-    ce~ : UInt64
+    ce~ : UInt64,
   )
   PathAbandon(path_id~ : UInt64, error_code~ : UInt64)
   // `available` picks PATH_STATUS_AVAILABLE (0x3e77) over PATH_STATUS_BACKUP (0x3e76); the
@@ -92,7 +92,7 @@ pub(all) enum Frame {
     seq~ : UInt64,
     retire_prior_to~ : UInt64,
     conn_id~ : Bytes,
-    reset_token~ : Bytes
+    reset_token~ : Bytes,
   )
   PathRetireConnectionId(path_id~ : UInt64, seq~ : UInt64)
   MaxPathId(max~ : UInt64)
@@ -242,7 +242,7 @@ pub fn encode(f : Frame) -> Bytes {
       ranges~,
       ect0~,
       ect1~,
-      ce~
+      ce~,
     ) => {
       buf.write_bytes(@quic.encode(0x3fUL)[:])
       buf.write_bytes(@quic.encode(path_id)[:])
@@ -268,7 +268,7 @@ pub fn encode(f : Frame) -> Bytes {
       seq~,
       retire_prior_to~,
       conn_id~,
-      reset_token~
+      reset_token~,
     ) => {
       buf.write_bytes(@quic.encode(0x3e78UL)[:])
       buf.write_bytes(@quic.encode(path_id)[:])

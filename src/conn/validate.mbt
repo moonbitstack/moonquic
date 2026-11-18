@@ -167,7 +167,7 @@ fn frame_fault(
       seq~,
       retire_prior_to~,
       conn_id~,
-      reset_token~
+      reset_token~,
     ) =>
       // §4.4: the same rules NEW_CONNECTION_ID has, per path.
       if path_id > max_path_id {
